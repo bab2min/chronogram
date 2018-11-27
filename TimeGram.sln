@@ -1,0 +1,75 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27703.2035
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TimeGram", "TimeGram.vcxproj", "{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TimeGram-Lin", "TimeGram-Lin.vcxproj", "{9799302B-140D-4024-A150-B29102D262AC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|ARM = Debug|ARM
+		Debug|ARM64 = Debug|ARM64
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|ARM = Release|ARM
+		Release|ARM64 = Release|ARM64
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+		ReleaseSIMD|ARM = ReleaseSIMD|ARM
+		ReleaseSIMD|ARM64 = ReleaseSIMD|ARM64
+		ReleaseSIMD|x64 = ReleaseSIMD|x64
+		ReleaseSIMD|x86 = ReleaseSIMD|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Debug|ARM.ActiveCfg = Debug|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Debug|ARM64.ActiveCfg = Debug|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Debug|x64.ActiveCfg = Debug|x64
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Debug|x64.Build.0 = Debug|x64
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Debug|x86.ActiveCfg = Debug|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Debug|x86.Build.0 = Debug|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Release|ARM.ActiveCfg = Release|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Release|ARM64.ActiveCfg = Release|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Release|x64.ActiveCfg = Release|x64
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Release|x64.Build.0 = Release|x64
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Release|x86.ActiveCfg = Release|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.Release|x86.Build.0 = Release|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.ReleaseSIMD|ARM.ActiveCfg = ReleaseSIMD|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.ReleaseSIMD|ARM64.ActiveCfg = ReleaseSIMD|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.ReleaseSIMD|x64.ActiveCfg = ReleaseSIMD|x64
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.ReleaseSIMD|x64.Build.0 = ReleaseSIMD|x64
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.ReleaseSIMD|x86.ActiveCfg = ReleaseSIMD|Win32
+		{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}.ReleaseSIMD|x86.Build.0 = ReleaseSIMD|Win32
+		{9799302B-140D-4024-A150-B29102D262AC}.Debug|ARM.ActiveCfg = Debug|ARM
+		{9799302B-140D-4024-A150-B29102D262AC}.Debug|ARM.Build.0 = Debug|ARM
+		{9799302B-140D-4024-A150-B29102D262AC}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{9799302B-140D-4024-A150-B29102D262AC}.Debug|ARM64.Build.0 = Debug|ARM64
+		{9799302B-140D-4024-A150-B29102D262AC}.Debug|x64.ActiveCfg = Debug|x64
+		{9799302B-140D-4024-A150-B29102D262AC}.Debug|x64.Build.0 = Debug|x64
+		{9799302B-140D-4024-A150-B29102D262AC}.Debug|x86.ActiveCfg = Debug|x86
+		{9799302B-140D-4024-A150-B29102D262AC}.Debug|x86.Build.0 = Debug|x86
+		{9799302B-140D-4024-A150-B29102D262AC}.Release|ARM.ActiveCfg = Release|ARM
+		{9799302B-140D-4024-A150-B29102D262AC}.Release|ARM.Build.0 = Release|ARM
+		{9799302B-140D-4024-A150-B29102D262AC}.Release|ARM64.ActiveCfg = Release|ARM64
+		{9799302B-140D-4024-A150-B29102D262AC}.Release|ARM64.Build.0 = Release|ARM64
+		{9799302B-140D-4024-A150-B29102D262AC}.Release|x64.ActiveCfg = Release|x64
+		{9799302B-140D-4024-A150-B29102D262AC}.Release|x64.Build.0 = Release|x64
+		{9799302B-140D-4024-A150-B29102D262AC}.Release|x86.ActiveCfg = Release|x86
+		{9799302B-140D-4024-A150-B29102D262AC}.Release|x86.Build.0 = Release|x86
+		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|ARM.ActiveCfg = Release|ARM
+		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|ARM.Build.0 = Release|ARM
+		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|ARM64.ActiveCfg = Release|ARM64
+		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|ARM64.Build.0 = Release|ARM64
+		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|x64.ActiveCfg = Release|x64
+		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|x64.Build.0 = Release|x64
+		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|x86.ActiveCfg = Release|x86
+		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|x86.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {CE9D6EDF-FB29-488A-8688-42DC7A2E692D}
+	EndGlobalSection
+EndGlobal
