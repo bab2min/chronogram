@@ -73,7 +73,6 @@ float TimeGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative, 
 void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 	size_t window_length, float start_lr, ThreadLocalData& ld, size_t threadId)
 {
-	size_t senses = 0, max_senses = 0;
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
 	vector<uint32_t> negativeSamples;
 	negativeSamples.reserve(negativeSampleSize);
@@ -130,9 +129,9 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 		if (threadId == 0 && procWords % 10000 == 0)
 		{
 			float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
-			printf("%.2f%% %.4f %.4f %.4f %.2f/%d %.2f kwords/sec\n",
+			printf("%.2f%% %.4f %.4f %.4f %.2f kwords/sec\n",
 				procWords / (totalWords / 100.f), totalLL, lr1, lr2,
-				(float)senses / (i + 1), max_senses, time_per_kword);
+				time_per_kword);
 			lastProcWords = procWords;
 			timer.reset();
 		}
@@ -142,13 +141,18 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 void TimeGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt)
 {
 	VocabCounter vc;
-	for(size_t id = 0; ; )
+	float minT = INFINITY, maxT = -INFINITY;
+	for(size_t id = 0; ; ++id)
 	{
 		auto res = reader(id);
 		if (res.stop) break;
 		if (res.words.empty()) continue;
+		minT = min(res.timePoint, minT);
+		maxT = max(res.timePoint, maxT);
 		vc.update(res.words.begin(), res.words.end(), VocabCounter::defaultTest, VocabCounter::defaultTrans);
 	}
+	zBias = minT;
+	zSlope = minT == maxT ? 1 : 1 / (maxT - minT);
 
 	for (size_t i = 0; i < vc.rdict.size(); ++i)
 	{
@@ -340,7 +344,7 @@ TimeGramModel TimeGramModel::loadModel(istream & is)
 	size_t M = readFromBinStream<uint32_t>(is);
 	size_t L = readFromBinStream<uint32_t>(is);
 	bool context_cut = readFromBinStream<uint32_t>(is);
-	TimeGramModel ret{ M };
+	TimeGramModel ret{ M, L };
 	ret.context_cut = context_cut;
 	ret.vocabs.readFromFile(is);
 	size_t V = ret.vocabs.size();
