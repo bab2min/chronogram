@@ -27,6 +27,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\shiftedLegendre.hpp" />
     <ClInclude Include="src\TimeGramModel.h" />
     <ClInclude Include="src\dictionary.h" />
     <ClInclude Include="src\gamma.h" />
