@@ -69,13 +69,32 @@ float TimeGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative, 
 	return pr;
 }
 
+float TimeGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool negative, const std::vector<float>& lWeight,
+	Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad, Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad)
+{
+	auto outcol = out.col(y);
+	VectorXf inSum = VectorXf::Zero(M);
+	for (size_t l = 0; l < L; ++l)
+	{
+		inSum += lWeight[l] * in.col(x * L + l);
+	}
+	float f = inSum.dot(outcol);
+	float pr = logsigmoid(f * (negative ? -1 : 1));
+
+	float d = (negative ? 0 : 1) - sigmoid(f);
+	float g = lr * d;
+
+	xGrad += g * outcol;
+	yGrad += g * inSum;
+	return max(pr, -100.f);
+}
+
+
 
 void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
-	size_t window_length, float start_lr, ThreadLocalData& ld, size_t threadId)
+	size_t window_length, float start_lr)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
-	vector<uint32_t> negativeSamples;
-	negativeSamples.reserve(negativeSampleSize);
 	vector<float> legendreCoef = makeLegendreCoef(L, (timePoint - zBias) / zSlope);
 
 	for (size_t i = 0; i < N; ++i)
@@ -84,29 +103,11 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 		float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
 		float lr2 = lr1;
 
-		int random_reduce = context_cut ? uid(ld.rg) : 0;
+		int random_reduce = context_cut ? uid(globalData.rg) : 0;
 		int window = window_length - random_reduce;
 		size_t jBegin = 0, jEnd = N;
 		if (i > window) jBegin = i - window;
 		if (i + window < N) jEnd = i + window;
-
-		// sample negative examples, which is not included in positive
-		unordered_set<uint32_t> positiveSamples;
-		positiveSamples.emplace(x);
-		for (auto j = jBegin; j < jEnd; ++j)
-		{
-			if (i == j) continue;
-			positiveSamples.emplace(ws[j]);
-		}
-		negativeSamples.clear();
-		while (negativeSamples.size() < negativeSampleSize)
-		{
-			auto nw = unigramTable(ld.rg);
-			if (positiveSamples.count(nw)) continue;
-			negativeSamples.emplace_back(nw);
-		}
-
-		lock_guard<mutex> lock(mtx);
 
 		// update in, out vector
 		for (auto j = jBegin; j < jEnd; ++j)
@@ -114,19 +115,20 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 			if (i == j) continue;
 			float ll = inplaceUpdate(x, ws[j], lr1, false, legendreCoef);
 			assert(isnormal(ll));
+			for (size_t k = 0; k < negativeSampleSize; ++k)
+			{
+				uint32_t ns = unigramTable(globalData.rg);
+				while (ns == ws[j]) ns = unigramTable(globalData.rg);
+				ll += inplaceUpdate(x, ns, lr1, true, legendreCoef);
+				assert(isnormal(ll));
+			}
 			totalLLCnt++;
 			totalLL += (ll - totalLL) / totalLLCnt;
-		}
-		for (auto ns : negativeSamples)
-		{
-			float ll = inplaceUpdate(x, ns, lr1, true, legendreCoef);
-			assert(isnormal(ll));
-			totalLL += ll / totalLLCnt;
 		}
 
 		procWords += 1;
 
-		if (threadId == 0 && procWords % 10000 == 0)
+		if (procWords % 10000 == 0)
 		{
 			float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
 			printf("%.2f%% %.4f %.4f %.4f %.2f kwords/sec\n",
@@ -138,6 +140,87 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 	}
 }
 
+
+void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timePoint,
+	size_t window_length, float start_lr, ThreadLocalData& ld)
+{
+	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
+	vector<float> legendreCoef = makeLegendreCoef(L, (timePoint - zBias) / zSlope);
+	float llSum = 0;
+	size_t llCnt = 0;
+
+	ld.updateOutIdx.clear();
+	ld.updateOutMat = MatrixXf::Zero(M, negativeSampleSize * (window_length + 1) * 2);
+	for (size_t i = 0; i < N; ++i)
+	{
+		const auto& x = ws[i];
+		float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
+		float lr2 = lr1;
+
+		int random_reduce = context_cut ? uid(ld.rg) : 0;
+		int window = window_length - random_reduce;
+		size_t jBegin = 0, jEnd = N;
+		if (i > window) jBegin = i - window;
+		if (i + window < N) jEnd = i + window;
+		MatrixXf updateIn = MatrixXf::Zero(M, 1);
+
+		// update in, out vector
+		for (auto j = jBegin; j < jEnd; ++j)
+		{
+			if (i == j) continue;
+			if (ld.updateOutIdx.find(ws[j]) == ld.updateOutIdx.end()) 
+				ld.updateOutIdx.emplace(ws[j], ld.updateOutIdx.size());
+
+			float ll = getUpdateGradient(x, ws[j], lr1, false, legendreCoef,
+				updateIn.col(0),
+				ld.updateOutMat.col(ld.updateOutIdx[ws[j]]));
+			assert(isnormal(ll));
+			for (size_t k = 0; k < negativeSampleSize; ++k)
+			{
+				uint32_t ns = unigramTable(ld.rg);
+				while (ns == ws[j]) ns = unigramTable(ld.rg);
+				if (ld.updateOutIdx.find(ns) == ld.updateOutIdx.end()) 
+					ld.updateOutIdx.emplace(ns, ld.updateOutIdx.size());
+
+				ll += getUpdateGradient(x, ns, lr1, true, legendreCoef,
+					updateIn.col(0),
+					ld.updateOutMat.col(ld.updateOutIdx[ns]));
+				assert(isnormal(ll));
+			}
+			llCnt++;
+			llSum += ll;
+		}
+
+		{
+			lock_guard<mutex> lock(mtx);
+			for (size_t l = 0; l < L; ++l)
+			{
+				in.col(x * L + l) += legendreCoef[l] * updateIn.col(0);
+			}
+			for (auto& p : ld.updateOutIdx)
+			{
+				out.col(p.first) += ld.updateOutMat.col(p.second);
+			}
+		}
+		ld.updateOutMat.setZero();
+		ld.updateOutIdx.clear();
+	}
+
+	lock_guard<mutex> lock(mtx);
+	totalLLCnt += llCnt;
+	totalLL += (llSum - llCnt * totalLL) / totalLLCnt;
+	procWords += N;
+	if ((procWords - N) / 10000 < procWords / 10000)
+	{
+		float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
+		fprintf(stderr, "%.2f%% %.4f %.4f %.2f kwords/sec\n",
+			procWords / (totalWords / 100.f), totalLL,
+			max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f),
+			time_per_kword);
+		lastProcWords = procWords;
+		timer.reset();
+	}
+}
 void TimeGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt)
 {
 	VocabCounter vc;
@@ -196,9 +279,9 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 			futures.reserve(collections.size());
 			for (auto& d : collections)
 			{
-				futures.emplace_back(workers.enqueue([&d, &ld, window_length, start_lr, this](size_t threadId)
+				futures.emplace_back(workers.enqueue([&](size_t threadId)
 				{
-					trainVectors(d.first.data(), d.first.size(), d.second, window_length, start_lr, ld[threadId], threadId);
+					trainVectorsMulti(d.first.data(), d.first.size(), d.second, window_length, start_lr, ld[threadId]);
 				}));
 			}
 			for (auto& f : futures) f.get();
@@ -207,7 +290,7 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 		{
 			for (auto& d : collections)
 			{
-				trainVectors(d.first.data(), d.first.size(), d.second, window_length, start_lr, globalData);
+				trainVectors(d.first.data(), d.first.size(), d.second, window_length, start_lr);
 			}
 		}
 		collections.clear();

@@ -90,7 +90,7 @@ int main(int argc, const char** argv)
 			}
 			rr.stop = true;
 			return rr;
-		}, 1, 4, .025f, 1000, 5);
+		}, 0, 4, .025f, 1000, 5);
 
 		cout << "Finished in " << timer.getElapsed() << " sec" << endl;
 		ofstream ofs{ argv[2], ios_base::binary };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <unordered_map>
 #include <random>
 #include <functional>
 #include <mutex>
@@ -50,6 +51,8 @@ private:
 	struct ThreadLocalData
 	{
 		std::mt19937_64 rg;
+		Eigen::MatrixXf updateOutMat;
+		std::unordered_map<uint32_t, uint32_t> updateOutIdx;
 	};
 
 	std::vector<size_t> frequencies; // (V)
@@ -82,9 +85,14 @@ private:
 	Eigen::VectorXf makeTimedVector(size_t wv, const std::vector<float>& legendreCoef) const;
 
 	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const std::vector<float>& lWeight);
+	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const std::vector<float>& lWeight,
+		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
+		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
 	void buildModel();
 	void trainVectors(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr, ThreadLocalData& ld, size_t threadId = 0);
+		size_t window_length, float start_lr);
+	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
+		size_t window_length, float start_lr, ThreadLocalData& ld);
 public:
 	TimeGramModel(size_t _M = 100, size_t _L = 3,
 		float _subsampling = 1e-4, size_t _negativeSampleSize = 5, size_t seed = std::random_device()())
