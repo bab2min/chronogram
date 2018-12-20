@@ -1,6 +1,8 @@
 #pragma once
+#include <type_traits>
+#include <cmath>
 
-namespace slp
+namespace poly
 {
 	template<int n, int k>
 	struct combination
@@ -110,5 +112,62 @@ namespace slp
 	inline int slpGetCoef(size_t n, size_t k)
 	{
 		return ((n + k) & 1 ? -1 : 1) * (int)(partialProductDown(n, k) / partialProductDown(k, k) * partialProductDown(n + k, k) / partialProductDown(k, k));
+	}
+
+	template<class _Type, int _Order>
+	struct chebyshev
+	{
+		inline static _Type T(_Type x)
+		{
+			if(_Order % 2) return 2 * chebyshev<_Type, _Order / 2>::T(x) * chebyshev<_Type, _Order / 2 + 1>::T(x) - x;
+			else return 2 * std::pow(chebyshev<_Type, _Order / 2>::T(x), 2) - 1;
+		}
+	};
+
+	template<class _Type>
+	struct chebyshev<_Type, 0>
+	{
+		inline static _Type T(_Type x)
+		{
+			return 1;
+		}
+	};
+
+	template<class _Type>
+	struct chebyshev<_Type, 1>
+	{
+		inline static _Type T(_Type x)
+		{
+			return x;
+		}
+	};
+
+	template<int _Order, class _Type> inline _Type chebyshevT(_Type x)
+	{
+		return chebyshev<_Type, _Order>::T(x);
+	}
+
+	template<class _Type> _Type chebyshevTGet(size_t order, _Type x)
+	{
+		switch (order)
+		{
+		case 0: return chebyshevT<0>(x);
+		case 1: return chebyshevT<1>(x);
+		case 2: return chebyshevT<2>(x);
+		case 3: return chebyshevT<3>(x);
+		case 4: return chebyshevT<4>(x);
+		case 5: return chebyshevT<5>(x);
+		case 6: return chebyshevT<6>(x);
+		case 7: return chebyshevT<7>(x);
+		case 8: return chebyshevT<8>(x);
+		case 9: return chebyshevT<9>(x);
+		case 10: return chebyshevT<10>(x);
+		case 11: return chebyshevT<11>(x);
+		case 12: return chebyshevT<12>(x);
+		case 13: return chebyshevT<13>(x);
+		case 14: return chebyshevT<14>(x);
+		case 15: return chebyshevT<15>(x);
+		}
+		return _Type{};
 	}
 }

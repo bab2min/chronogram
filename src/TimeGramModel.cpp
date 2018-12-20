@@ -2,7 +2,7 @@
 #include "mathUtils.h"
 #include "IOUtils.h"
 #include "ThreadPool.h"
-#include "shiftedLegendre.hpp"
+#include "polynomials.hpp"
 #include <numeric>
 #include <iostream>
 #include <iterator>
@@ -24,22 +24,22 @@ void TimeGramModel::buildModel()
 	unigramTable = discrete_distribution<uint32_t>(weights.begin(), weights.end());
 }
 
-vector<float> TimeGramModel::makeLegendreCoef(size_t L, float z)
+vector<float> TimeGramModel::makeCoef(size_t L, float z)
 {
 	vector<float> coef(L);
 	for (size_t i = 0; i < L; ++i)
 	{
-		coef[i] = slp::slpGet(i, z);
+		coef[i] = poly::chebyshevTGet(i, 2 * z - 1);
 	}
 	return coef;
 }
 
-VectorXf TimeGramModel::makeTimedVector(size_t wv, const vector<float>& legendreCoef) const
+VectorXf TimeGramModel::makeTimedVector(size_t wv, const vector<float>& coef) const
 {
 	VectorXf vec = VectorXf::Zero(M);
 	for (size_t l = 0; l < L; ++l)
 	{
-		vec += legendreCoef[l] * in.col(wv * L + l);
+		vec += coef[l] * in.col(wv * L + l);
 	}
 	return vec;
 }
@@ -95,7 +95,7 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 	size_t window_length, float start_lr)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
-	vector<float> legendreCoef = makeLegendreCoef(L, (timePoint - zBias) / zSlope);
+	vector<float> coef = makeCoef(L, (timePoint - zBias) * zSlope);
 
 	for (size_t i = 0; i < N; ++i)
 	{
@@ -103,23 +103,21 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 		float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
 		float lr2 = lr1;
 
-		int random_reduce = context_cut ? uid(globalData.rg) : 0;
-		int window = window_length - random_reduce;
 		size_t jBegin = 0, jEnd = N;
-		if (i > window) jBegin = i - window;
-		if (i + window < N) jEnd = i + window;
+		if (i > window_length) jBegin = i - window_length;
+		if (i + window_length < N) jEnd = i + window_length;
 
 		// update in, out vector
 		for (auto j = jBegin; j < jEnd; ++j)
 		{
 			if (i == j) continue;
-			float ll = inplaceUpdate(x, ws[j], lr1, false, legendreCoef);
+			float ll = inplaceUpdate(x, ws[j], lr1, false, coef);
 			assert(isnormal(ll));
 			for (size_t k = 0; k < negativeSampleSize; ++k)
 			{
 				uint32_t ns = unigramTable(globalData.rg);
 				while (ns == ws[j]) ns = unigramTable(globalData.rg);
-				ll += inplaceUpdate(x, ns, lr1, true, legendreCoef);
+				ll += inplaceUpdate(x, ns, lr1, true, coef);
 				assert(isnormal(ll));
 			}
 			totalLLCnt++;
@@ -145,7 +143,7 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 	size_t window_length, float start_lr, ThreadLocalData& ld)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
-	vector<float> legendreCoef = makeLegendreCoef(L, (timePoint - zBias) / zSlope);
+	vector<float> coef = makeCoef(L, (timePoint - zBias) * zSlope);
 	float llSum = 0;
 	size_t llCnt = 0;
 
@@ -157,11 +155,9 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 		float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
 		float lr2 = lr1;
 
-		int random_reduce = context_cut ? uid(ld.rg) : 0;
-		int window = window_length - random_reduce;
 		size_t jBegin = 0, jEnd = N;
-		if (i > window) jBegin = i - window;
-		if (i + window < N) jEnd = i + window;
+		if (i > window_length) jBegin = i - window_length;
+		if (i + window_length < N) jEnd = i + window_length;
 		MatrixXf updateIn = MatrixXf::Zero(M, 1);
 
 		// update in, out vector
@@ -171,7 +167,7 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 			if (ld.updateOutIdx.find(ws[j]) == ld.updateOutIdx.end()) 
 				ld.updateOutIdx.emplace(ws[j], ld.updateOutIdx.size());
 
-			float ll = getUpdateGradient(x, ws[j], lr1, false, legendreCoef,
+			float ll = getUpdateGradient(x, ws[j], lr1, false, coef,
 				updateIn.col(0),
 				ld.updateOutMat.col(ld.updateOutIdx[ws[j]]));
 			assert(isnormal(ll));
@@ -182,7 +178,7 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 				if (ld.updateOutIdx.find(ns) == ld.updateOutIdx.end()) 
 					ld.updateOutIdx.emplace(ns, ld.updateOutIdx.size());
 
-				ll += getUpdateGradient(x, ns, lr1, true, legendreCoef,
+				ll += getUpdateGradient(x, ns, lr1, true, coef,
 					updateIn.col(0),
 					ld.updateOutMat.col(ld.updateOutIdx[ns]));
 				assert(isnormal(ll));
@@ -195,7 +191,7 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 			lock_guard<mutex> lock(mtx);
 			for (size_t l = 0; l < L; ++l)
 			{
-				in.col(x * L + l) += legendreCoef[l] * updateIn.col(0);
+				in.col(x * L + l) += coef[l] * updateIn.col(0);
 			}
 			for (auto& p : ld.updateOutIdx)
 			{
@@ -341,8 +337,8 @@ vector<tuple<string, float>> TimeGramModel::nearestNeighbors(const string & word
 	const size_t V = vocabs.size();
 	size_t wv = vocabs.get(word);
 	if (wv == (size_t)-1) return {};
-	vector<float> legendreCoef = makeLegendreCoef(L, (timePoint - zBias) / zSlope);
-	VectorXf vec = makeTimedVector(wv, legendreCoef).normalized();
+	vector<float> coef = makeCoef(L, (timePoint - zBias) * zSlope);
+	VectorXf vec = makeTimedVector(wv, coef).normalized();
 
 	vector<tuple<string, float>> top;
 	VectorXf sim(V);
@@ -353,7 +349,7 @@ vector<tuple<string, float>> TimeGramModel::nearestNeighbors(const string & word
 			sim(v) = -INFINITY;
 			continue;
 		}
-		sim(v) = makeTimedVector(v, legendreCoef).normalized().dot(vec);
+		sim(v) = makeTimedVector(v, coef).normalized().dot(vec);
 	}
 
 	for (size_t k = 0; k < K; ++k)
@@ -371,12 +367,12 @@ vector<tuple<string, float>> TimeGramModel::mostSimilar(const vector<string>& po
 	VectorXf vec = VectorXf::Zero(M);
 	const size_t V = vocabs.size();
 	unordered_set<size_t> uniqs;
-	vector<float> legendreCoef = makeLegendreCoef(L, (timePoint - zBias) / zSlope);
+	vector<float> coef = makeCoef(L, (timePoint - zBias) * zSlope);
 	for (auto& p : positiveWords)
 	{
 		size_t wv = vocabs.get(p);
 		if (wv == (size_t)-1) return {};
-		vec += makeTimedVector(wv, legendreCoef);
+		vec += makeTimedVector(wv, coef);
 		uniqs.emplace(wv);
 	}
 
@@ -384,7 +380,7 @@ vector<tuple<string, float>> TimeGramModel::mostSimilar(const vector<string>& po
 	{
 		size_t wv = vocabs.get(p);
 		if (wv == (size_t)-1) return {};
-		vec -= makeTimedVector(wv, legendreCoef);
+		vec -= makeTimedVector(wv, coef);
 		uniqs.emplace(wv);
 	}
 
@@ -399,7 +395,7 @@ vector<tuple<string, float>> TimeGramModel::mostSimilar(const vector<string>& po
 			sim(v) = -INFINITY;
 			continue;
 		}
-		sim(v) = makeTimedVector(v, legendreCoef).normalized().dot(vec);
+		sim(v) = makeTimedVector(v, coef).normalized().dot(vec);
 	}
 
 	for (size_t k = 0; k < K; ++k)
@@ -415,7 +411,6 @@ void TimeGramModel::saveModel(ostream & os) const
 {
 	writeToBinStream(os, (uint32_t)M);
 	writeToBinStream(os, (uint32_t)L);
-	writeToBinStream(os, (uint32_t)context_cut);
 	vocabs.writeToFile(os);
 	writeToBinStream(os, frequencies);
 	writeToBinStream(os, in);
@@ -426,9 +421,7 @@ TimeGramModel TimeGramModel::loadModel(istream & is)
 {
 	size_t M = readFromBinStream<uint32_t>(is);
 	size_t L = readFromBinStream<uint32_t>(is);
-	bool context_cut = readFromBinStream<uint32_t>(is);
 	TimeGramModel ret{ M, L };
-	ret.context_cut = context_cut;
 	ret.vocabs.readFromFile(is);
 	size_t V = ret.vocabs.size();
 	ret.in.resize(M, L * V);

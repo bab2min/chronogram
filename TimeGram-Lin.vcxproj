@@ -79,7 +79,7 @@
     <TargetExt />
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <TargetName>AdaGramCpp</TargetName>
+    <TargetName>timegram</TargetName>
     <TargetExt />
   </PropertyGroup>
   <ItemGroup>
@@ -87,11 +87,11 @@
     <ClCompile Include="src\TimeGramModel.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\cxxopts.hpp" />
     <ClInclude Include="src\dictionary.h" />
-    <ClInclude Include="src\gamma.h" />
     <ClInclude Include="src\IOUtils.h" />
-    <ClInclude Include="src\LUT.hpp" />
     <ClInclude Include="src\mathUtils.h" />
+    <ClInclude Include="src\polynomials.hpp" />
     <ClInclude Include="src\ThreadPool.h" />
     <ClInclude Include="src\TimeGramModel.h" />
     <ClInclude Include="src\Timer.h" />
@@ -108,7 +108,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <CppLanguageStandard>c++14</CppLanguageStandard>
-      <AdditionalOptions>-fpermissive %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>-fpermissive -mavx %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <AdditionalOptions>-pthread %(AdditionalOptions)</AdditionalOptions>

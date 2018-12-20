@@ -64,8 +64,6 @@ private:
 	float zBias = 0, zSlope = 1;
 	Mode mode;
 
-	bool context_cut = true;
-
 	size_t totalWords = 0;
 	size_t procWords = 0, lastProcWords = 0;
 	size_t totalLLCnt = 0;
@@ -81,8 +79,8 @@ private:
 
 	std::mutex mtx;
 
-	static std::vector<float> makeLegendreCoef(size_t L, float z);
-	Eigen::VectorXf makeTimedVector(size_t wv, const std::vector<float>& legendreCoef) const;
+	static std::vector<float> makeCoef(size_t L, float z);
+	Eigen::VectorXf makeTimedVector(size_t wv, const std::vector<float>& coef) const;
 
 	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const std::vector<float>& lWeight);
 	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const std::vector<float>& lWeight,
@@ -94,7 +92,7 @@ private:
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
 		size_t window_length, float start_lr, ThreadLocalData& ld);
 public:
-	TimeGramModel(size_t _M = 100, size_t _L = 3,
+	TimeGramModel(size_t _M = 100, size_t _L = 6,
 		float _subsampling = 1e-4, size_t _negativeSampleSize = 5, size_t seed = std::random_device()())
 		: M(_M), L(_L), subsampling(_subsampling),
 		mode(_negativeSampleSize ? Mode::negativeSampling : Mode::hierarchicalSoftmax),
@@ -104,7 +102,7 @@ public:
 	}
 
 	TimeGramModel(TimeGramModel&& o)
-		: M(o.M), L(o.L), globalData(o.globalData), context_cut(o.context_cut),
+		: M(o.M), L(o.L), globalData(o.globalData),
 		vocabs(std::move(o.vocabs)), frequencies(std::move(o.frequencies)),
 		in(std::move(o.in)), out(std::move(o.out))
 	{
@@ -115,7 +113,6 @@ public:
 		M = o.M;
 		L = o.L;
 		globalData = o.globalData;
-		context_cut = o.context_cut;
 		vocabs = std::move(o.vocabs);
 		frequencies = std::move(o.frequencies);
 		in = std::move(o.in);
@@ -141,5 +138,8 @@ public:
 
 	void saveModel(std::ostream& os) const;
 	static TimeGramModel loadModel(std::istream& is);
+
+	float getMinPoint() const { return zBias; }
+	float getMaxPoint() const { return zBias + 1 / zSlope; }
 };
 

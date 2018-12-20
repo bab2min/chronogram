@@ -27,12 +27,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\shiftedLegendre.hpp" />
+    <ClInclude Include="src\cxxopts.hpp" />
+    <ClInclude Include="src\polynomials.hpp" />
     <ClInclude Include="src\TimeGramModel.h" />
     <ClInclude Include="src\dictionary.h" />
-    <ClInclude Include="src\gamma.h" />
     <ClInclude Include="src\IOUtils.h" />
-    <ClInclude Include="src\LUT.hpp" />
     <ClInclude Include="src\mathUtils.h" />
     <ClInclude Include="src\ThreadPool.h" />
     <ClInclude Include="src\Timer.h" />
