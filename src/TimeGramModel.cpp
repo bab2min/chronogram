@@ -92,7 +92,7 @@ float TimeGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool negati
 
 
 void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
-	size_t window_length, float start_lr)
+	size_t window_length, float start_lr, size_t report)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
 	vector<float> coef = makeCoef(L, (timePoint - zBias) * zSlope);
@@ -126,7 +126,7 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 
 		procWords += 1;
 
-		if (procWords % 10000 == 0)
+		if (report && procWords % report == 0)
 		{
 			float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
 			printf("%.2f%% %.4f %.4f %.4f %.2f kwords/sec\n",
@@ -140,7 +140,7 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 
 
 void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timePoint,
-	size_t window_length, float start_lr, ThreadLocalData& ld)
+	size_t window_length, float start_lr, size_t report, ThreadLocalData& ld)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
 	vector<float> coef = makeCoef(L, (timePoint - zBias) * zSlope);
@@ -206,7 +206,7 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 	totalLLCnt += llCnt;
 	totalLL += (llSum - llCnt * totalLL) / totalLLCnt;
 	procWords += N;
-	if ((procWords - N) / 10000 < procWords / 10000)
+	if (report && (procWords - N) / report < procWords / report)
 	{
 		float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
 		fprintf(stderr, "%.2f%% %.4f %.4f %.2f kwords/sec\n",
@@ -243,7 +243,7 @@ void TimeGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, 
 }
 
 void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
-	size_t numWorkers, size_t window_length, float start_lr, size_t batch, size_t epoch)
+	size_t numWorkers, size_t window_length, float start_lr, size_t batch, size_t epoch, size_t report)
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
 	ThreadPool workers{ numWorkers };
@@ -277,7 +277,7 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 			{
 				futures.emplace_back(workers.enqueue([&](size_t threadId)
 				{
-					trainVectorsMulti(d.first.data(), d.first.size(), d.second, window_length, start_lr, ld[threadId]);
+					trainVectorsMulti(d.first.data(), d.first.size(), d.second, window_length, start_lr, report, ld[threadId]);
 				}));
 			}
 			for (auto& f : futures) f.get();
@@ -286,7 +286,7 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 		{
 			for (auto& d : collections)
 			{
-				trainVectors(d.first.data(), d.first.size(), d.second, window_length, start_lr);
+				trainVectors(d.first.data(), d.first.size(), d.second, window_length, start_lr, report);
 			}
 		}
 		collections.clear();

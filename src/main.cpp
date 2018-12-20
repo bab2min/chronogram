@@ -24,7 +24,8 @@ struct Args
 	string input, load, save;
 	int worker = 0, window = 4, dimension = 100;
 	int order = 5, epoch = 1, negative = 5;
-	int batch = 10000;
+	int batch = 10000, minCnt = 10;
+	int report = 10000;
 };
 
 int main(int argc, char* argv[])
@@ -52,6 +53,8 @@ int main(int argc, char* argv[])
 			("e,epoch", "Number of Epoch", cxxopts::value<int>())
 			("n,negative", "Negative Sampling Size", cxxopts::value<int>())
 			("b,batch", "Batch Docs Size", cxxopts::value<int>())
+			("m,minCnt", "Min Count Threshold of Word", cxxopts::value<int>())
+			("report", "", cxxopts::value<int>())
 			;
 
 		//options.parse_positional({ "model", "input", "topic" });
@@ -86,6 +89,7 @@ int main(int argc, char* argv[])
 			READ_OPT(epoch, int);
 			READ_OPT(negative, int);
 			READ_OPT(batch, int);
+			READ_OPT(minCnt, int);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -137,8 +141,8 @@ int main(int argc, char* argv[])
 			rr.stop = true;
 			return rr;
 		};
-		tgm.buildVocab(reader);
-		cout << "Vocab Size: " << tgm.getVocabs().size() << endl;
+		tgm.buildVocab(reader, args.minCnt);
+		cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size() << endl;
 		tgm.train(reader, args.worker, args.window, .025f, args.batch, args.epoch);
 
 		cout << "Finished in " << timer.getElapsed() << " sec" << endl;

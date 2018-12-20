@@ -88,9 +88,9 @@ private:
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
 	void buildModel();
 	void trainVectors(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr);
+		size_t window_length, float start_lr, size_t report);
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr, ThreadLocalData& ld);
+		size_t window_length, float start_lr, size_t report, ThreadLocalData& ld);
 public:
 	TimeGramModel(size_t _M = 100, size_t _L = 6,
 		float _subsampling = 1e-4, size_t _negativeSampleSize = 5, size_t seed = std::random_device()())
@@ -122,7 +122,7 @@ public:
 
 	void buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt = 10);
 	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
-		size_t window_length = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1);
+		size_t window_length = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
 	std::vector<std::tuple<std::string, float>> nearestNeighbors(const std::string& word, 
 		float timePoint, size_t K = 10) const;
