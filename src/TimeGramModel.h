@@ -104,7 +104,7 @@ public:
 	TimeGramModel(TimeGramModel&& o)
 		: M(o.M), L(o.L), globalData(o.globalData),
 		vocabs(std::move(o.vocabs)), frequencies(std::move(o.frequencies)),
-		in(std::move(o.in)), out(std::move(o.out))
+		in(std::move(o.in)), out(std::move(o.out)), zBias(o.zBias), zSlope(o.zSlope)
 	{
 	}
 
@@ -117,6 +117,8 @@ public:
 		frequencies = std::move(o.frequencies);
 		in = std::move(o.in);
 		out = std::move(o.out);
+		zBias = o.zBias;
+		zSlope = o.zSlope;
 		return *this;
 	}
 
@@ -124,12 +126,13 @@ public:
 	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
 		size_t window_length = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
+	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
 	std::vector<std::tuple<std::string, float>> nearestNeighbors(const std::string& word, 
-		float timePoint, size_t K = 10) const;
+		float wordTimePoint, float searchingTimePoint, size_t K = 10) const;
 	std::vector<std::tuple<std::string, float>> mostSimilar(
-		const std::vector<std::string>& positiveWords,
-		const std::vector<std::string>& negativeWords,
-		float timePoint, size_t K = 10) const;
+		const std::vector<std::pair<std::string, float>>& positiveWords,
+		const std::vector<std::pair<std::string, float>>& negativeWords,
+		float searchingTimePoint, size_t K = 10) const;
 
 	const std::vector<std::string>& getVocabs() const
 	{
@@ -141,5 +144,6 @@ public:
 
 	float getMinPoint() const { return zBias; }
 	float getMaxPoint() const { return zBias + 1 / zSlope; }
+	float normalizeTimePoint(float t) const { return (t - zBias) * zSlope; }
 };
 

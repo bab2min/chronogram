@@ -25,7 +25,7 @@ struct Args
 	int worker = 0, window = 4, dimension = 100;
 	int order = 5, epoch = 1, negative = 5;
 	int batch = 10000, minCnt = 10;
-	int report = 10000;
+	int report = 100000;
 };
 
 int main(int argc, char* argv[])
@@ -53,7 +53,7 @@ int main(int argc, char* argv[])
 			("e,epoch", "Number of Epoch", cxxopts::value<int>())
 			("n,negative", "Negative Sampling Size", cxxopts::value<int>())
 			("b,batch", "Batch Docs Size", cxxopts::value<int>())
-			("m,minCnt", "Min Count Threshold of Word", cxxopts::value<int>())
+			("t,minCnt", "Min Count Threshold of Word", cxxopts::value<int>())
 			("report", "", cxxopts::value<int>())
 			;
 
@@ -164,39 +164,92 @@ int main(int argc, char* argv[])
 	string line;
 	while (cout << ">> ", getline(cin, line))
 	{
-		vector<string> positives, negatives;
-		istringstream iss{ line };
-		istream_iterator<string> wBegin{ iss }, wEnd{};
-		float timePoint = tgm.getMinPoint();
-		bool sign = false;
-		for (; wBegin != wEnd; ++wBegin)
+		if (line[0] == '~') // calculate avg similarity per period
 		{
-			auto word = *wBegin;
-			if (word == "-")
+			if (line[1] == '~') // find shortest arc length
 			{
-				sign = true;
-			}
-			else if (word == "+")
-			{
-				sign = false;
-			}
-			else if (word[0] == '@')
-			{
-				timePoint = stof(word.substr(1));
+				cout << "==== Shortest Arc Length ====" << endl;
+				vector<pair<string, float>> lens;
+				for (auto& w : tgm.getVocabs())
+				{
+					lens.emplace_back(w, tgm.arcLengthOfWord(w));
+				}
+				sort(lens.begin(), lens.end(), [](auto a, auto b)
+				{
+					return a.second < b.second;
+				});
+				size_t i = 0;
+				for (auto& p : lens)
+				{
+					cout << p.first << "\t" << p.second << endl;
+					if (++i >= 20) break;
+				}
+				cout << "==== Longest Arc Length ====" << endl;
+				for (auto it = lens.end() - 20; it != lens.end(); ++it)
+				{
+					cout << it->first << "\t" << it->second << endl;
+				}
+				cout << endl;
 			}
 			else
 			{
-				(sign ? negatives : positives).emplace_back(word);
-				sign = false;
+				string w = line.substr(1);
+				cout << "==== Arc Length of " << w << " ====" << endl;
+				cout << tgm.arcLengthOfWord(w) << endl << endl;
 			}
 		}
-		
-		cout << "================" << endl;
-		for (auto& p : tgm.mostSimilar(positives, negatives, timePoint, 20))
+		else // find most similar word
 		{
-			cout << get<0>(p) << '\t' << get<1>(p) << endl;
+			vector<pair<string, float>> positives, negatives;
+			pair<string, float>* lastInput = nullptr;
+			istringstream iss{ line };
+			istream_iterator<string> wBegin{ iss }, wEnd{};
+			float searchingTimePoint = tgm.getMinPoint();
+			bool sign = false;
+			for (; wBegin != wEnd; ++wBegin)
+			{
+				auto word = *wBegin;
+				if (word == "-")
+				{
+					sign = true;
+				}
+				else if (word == "+")
+				{
+					sign = false;
+				}
+				else if (word[0] == '@')
+				{
+					float t = stof(word.substr(1));
+					if (t < tgm.getMinPoint() || t > tgm.getMaxPoint())
+					{
+						cout << "Out of time range [" << tgm.getMinPoint() << ", " << tgm.getMaxPoint() << "]" << endl;
+					}
+
+					if (lastInput)
+					{
+						lastInput->second = t;
+						lastInput = nullptr;
+					}
+					else
+					{
+						searchingTimePoint = t;
+					}
+				}
+				else
+				{
+					(sign ? negatives : positives).emplace_back(word, tgm.getMinPoint());
+					lastInput = &(sign ? negatives : positives).back();
+					sign = false;
+				}
+			}
+
+			cout << "==== Most Similar at " << searchingTimePoint << " ====" << endl;
+			for (auto& p : tgm.mostSimilar(positives, negatives, searchingTimePoint, 20))
+			{
+				cout << get<0>(p) << '\t' << get<1>(p) << endl;
+			}
+			cout << endl;
 		}
-		cout << endl;
 	}
     return 0;
 }

@@ -95,7 +95,7 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 	size_t window_length, float start_lr, size_t report)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
-	vector<float> coef = makeCoef(L, (timePoint - zBias) * zSlope);
+	vector<float> coef = makeCoef(L, normalizeTimePoint(timePoint));
 
 	for (size_t i = 0; i < N; ++i)
 	{
@@ -143,7 +143,7 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 	size_t window_length, float start_lr, size_t report, ThreadLocalData& ld)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
-	vector<float> coef = makeCoef(L, (timePoint - zBias) * zSlope);
+	vector<float> coef = makeCoef(L, normalizeTimePoint(timePoint));
 	float llSum = 0;
 	size_t llCnt = 0;
 
@@ -331,14 +331,29 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 	procCollection();
 }
 
-vector<tuple<string, float>> TimeGramModel::nearestNeighbors(const string & word, 
-	float timePoint, size_t K) const
+float TimeGramModel::arcLengthOfWord(const string & word, size_t step) const
+{
+	size_t wv = vocabs.get(word);
+	if (wv == (size_t)-1) return {};
+	float len = 0;
+	VectorXf v = makeTimedVector(wv, makeCoef(L, 0));
+	for (size_t i = 0; i < step; ++i)
+	{
+		VectorXf u = makeTimedVector(wv, makeCoef(L, (float)(i+1) / step));
+		len += sqrt((v - u).squaredNorm() + pow(1.f / step, 2));
+		v.swap(u);
+	}
+	return len;
+}
+
+vector<tuple<string, float>> TimeGramModel::nearestNeighbors(const string & word,
+	float wordTimePoint, float searchingTimePoint, size_t K) const
 {
 	const size_t V = vocabs.size();
 	size_t wv = vocabs.get(word);
 	if (wv == (size_t)-1) return {};
-	vector<float> coef = makeCoef(L, (timePoint - zBias) * zSlope);
-	VectorXf vec = makeTimedVector(wv, coef).normalized();
+	vector<float> coef = makeCoef(L, normalizeTimePoint(searchingTimePoint));
+	VectorXf vec = makeTimedVector(wv, makeCoef(L, normalizeTimePoint(wordTimePoint))).normalized();
 
 	vector<tuple<string, float>> top;
 	VectorXf sim(V);
@@ -361,26 +376,28 @@ vector<tuple<string, float>> TimeGramModel::nearestNeighbors(const string & word
 	return top;
 }
 
-vector<tuple<string, float>> TimeGramModel::mostSimilar(const vector<string>& positiveWords, 
-	const vector<string>& negativeWords, float timePoint, size_t K) const
+vector<tuple<string, float>> TimeGramModel::mostSimilar(
+	const vector<pair<string, float>>& positiveWords, 
+	const vector<pair<string, float>>& negativeWords, 
+	float searchingTimePoint, size_t K) const
 {
 	VectorXf vec = VectorXf::Zero(M);
 	const size_t V = vocabs.size();
 	unordered_set<size_t> uniqs;
-	vector<float> coef = makeCoef(L, (timePoint - zBias) * zSlope);
+	vector<float> coef = makeCoef(L, normalizeTimePoint(searchingTimePoint));
 	for (auto& p : positiveWords)
 	{
-		size_t wv = vocabs.get(p);
+		size_t wv = vocabs.get(p.first);
 		if (wv == (size_t)-1) return {};
-		vec += makeTimedVector(wv, coef);
+		vec += makeTimedVector(wv, makeCoef(L, normalizeTimePoint(p.second)));
 		uniqs.emplace(wv);
 	}
 
 	for (auto& p : negativeWords)
 	{
-		size_t wv = vocabs.get(p);
+		size_t wv = vocabs.get(p.first);
 		if (wv == (size_t)-1) return {};
-		vec -= makeTimedVector(wv, coef);
+		vec -= makeTimedVector(wv, makeCoef(L, normalizeTimePoint(p.second)));
 		uniqs.emplace(wv);
 	}
 
@@ -390,11 +407,11 @@ vector<tuple<string, float>> TimeGramModel::mostSimilar(const vector<string>& po
 	VectorXf sim(V);
 	for (size_t v = 0; v < V; ++v)
 	{
-		if (uniqs.count(v))
+		/*if (uniqs.count(v))
 		{
 			sim(v) = -INFINITY;
 			continue;
-		}
+		}*/
 		sim(v) = makeTimedVector(v, coef).normalized().dot(vec);
 	}
 
@@ -411,6 +428,8 @@ void TimeGramModel::saveModel(ostream & os) const
 {
 	writeToBinStream(os, (uint32_t)M);
 	writeToBinStream(os, (uint32_t)L);
+	writeToBinStream(os, zBias);
+	writeToBinStream(os, zSlope);
 	vocabs.writeToFile(os);
 	writeToBinStream(os, frequencies);
 	writeToBinStream(os, in);
@@ -422,6 +441,8 @@ TimeGramModel TimeGramModel::loadModel(istream & is)
 	size_t M = readFromBinStream<uint32_t>(is);
 	size_t L = readFromBinStream<uint32_t>(is);
 	TimeGramModel ret{ M, L };
+	ret.zBias = readFromBinStream<float>(is);
+	ret.zSlope = readFromBinStream<float>(is);
 	ret.vocabs.readFromFile(is);
 	size_t V = ret.vocabs.size();
 	ret.in.resize(M, L * V);
