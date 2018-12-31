@@ -21,11 +21,12 @@ using namespace std;
 
 struct Args
 {
-	string input, load, save;
+	string input, load, save, eval;
 	int worker = 0, window = 4, dimension = 100;
 	int order = 5, epoch = 1, negative = 5;
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
+	int nsQ = 8, initStep = 10;
 };
 
 int main(int argc, char* argv[])
@@ -43,6 +44,7 @@ int main(int argc, char* argv[])
 			("i,input", "Input File", cxxopts::value<string>(), "Input file path that contains documents per line")
 			("l,load", "Load Model File", cxxopts::value<string>(), "Model file path to be loaded")
 			("v,save", "Save Model File", cxxopts::value<string>(), "Model file path to be saved")
+			("eval", "Evaluation set File", cxxopts::value<string>(), "Evaluation set file path")
 			("h,help", "Help")
 			("version", "Version")
 
@@ -55,6 +57,8 @@ int main(int argc, char* argv[])
 			("b,batch", "Batch Docs Size", cxxopts::value<int>())
 			("t,minCnt", "Min Count Threshold of Word", cxxopts::value<int>())
 			("report", "", cxxopts::value<int>())
+			("nsQ", "", cxxopts::value<int>())
+			("initStep", "", cxxopts::value<int>())
 			;
 
 		//options.parse_positional({ "model", "input", "topic" });
@@ -81,6 +85,7 @@ int main(int argc, char* argv[])
 			READ_OPT(load, string);
 			READ_OPT(save, string);
 			READ_OPT(input, string);
+			READ_OPT(eval, string);
 
 			READ_OPT(worker, int);
 			READ_OPT(window, int);
@@ -90,6 +95,8 @@ int main(int argc, char* argv[])
 			READ_OPT(negative, int);
 			READ_OPT(batch, int);
 			READ_OPT(minCnt, int);
+			READ_OPT(nsQ, int);
+			READ_OPT(initStep, int);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -113,7 +120,13 @@ int main(int argc, char* argv[])
 	cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 	cout << "Workers: " << args.worker << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
 	TimeGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative };
-	if (!args.input.empty())
+	if (!args.load.empty())
+	{
+		cout << "Loading Model: " << args.load << endl;
+		ifstream ifs{ args.load, ios_base::binary };
+		tgm = TimeGramModel::loadModel(ifs);
+	}
+	else if (!args.input.empty())
 	{
 		cout << "Training Input: " << args.input << endl;
 		Timer timer;
@@ -153,12 +166,40 @@ int main(int argc, char* argv[])
 			tgm.saveModel(ofs);
 		}
 	}
-	else if(!args.load.empty())
-	{
-		cout << "Loading Model: " << args.load << endl;
-		ifstream ifs{ args.load, ios_base::binary };
-		tgm = TimeGramModel::loadModel(ifs);
 
+	if (!args.eval.empty())
+	{
+		cout << "Evaluating Time Prediction: " << args.eval << endl;
+		Timer timer;
+		ifstream ifs{ args.eval };
+		ofstream ofs{ args.eval + ".result" };
+		string line;
+		float avgErr = 0;
+		size_t n = 0;
+		while (getline(ifs, line))
+		{
+			istringstream iss{ line };
+			istream_iterator<string> iBegin{ iss }, iEnd{};
+			string time = *iBegin++;
+			float timePoint = stof(time);
+			vector<string> words{ iBegin, iEnd };
+			auto llp = tgm.predictSentTime(words, args.window, args.nsQ, args.initStep);
+			float normalizedErr = tgm.normalizeTimePoint(timePoint) - tgm.normalizeTimePoint(llp.first);
+			ofs << timePoint << "\t" << llp.first << "\t" << llp.second << "\t" << timePoint - llp.first << "\t" << normalizedErr << endl;
+			avgErr += pow(normalizedErr, 2);
+			n++;
+		}
+		avgErr /= n;
+		cout << "== Evaluating Result ==" << endl;
+		cout << "Running Time: " << timer.getElapsed() << "s" << endl;
+		cout << "Total Docs: " << n << endl;
+		cout << "Avg Squared Error: " << avgErr << endl;
+		cout << "Avg Error: " << sqrt(avgErr) << endl;
+
+		ofs << "Running Time: " << timer.getElapsed() << "s" << endl;
+		ofs << "Total Docs: " << n << endl;
+		ofs << "Avg Squared Error: " << avgErr << endl;
+		ofs << "Avg Error: " << sqrt(avgErr) << endl;
 	}
 
 	string line;
@@ -196,6 +237,18 @@ int main(int argc, char* argv[])
 				string w = line.substr(1);
 				cout << "==== Arc Length of " << w << " ====" << endl;
 				cout << tgm.arcLengthOfWord(w) << endl << endl;
+			}
+		}
+		else if (line[0] == '`') // estimate time of text
+		{
+			istringstream iss{ line.substr(1) };
+			istream_iterator<string> wBegin{ iss }, wEnd{};
+			vector<string> words{ wBegin, wEnd };
+			auto evaluator = tgm.evaluateSent(words, args.window, 1);
+			for (size_t i = 0; i <= args.initStep; ++i)
+			{
+				float z = i / (float)args.initStep;
+				cout << tgm.unnormalizeTimePoint(z) << ": " << evaluator(z) << endl;
 			}
 		}
 		else // find most similar word

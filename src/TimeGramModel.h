@@ -47,6 +47,44 @@ public:
 		bool stop = false;
 	};
 
+	class LLEvaluater
+	{
+		friend class TimeGramModel;
+		size_t L, negativeSampleSize, windowLen, nsQ;
+		std::vector<uint32_t> wordIds;
+		struct MixedVectorCoef
+		{
+			size_t n = 0;
+			std::map<uint32_t, std::vector<float>> dataMap;
+			std::vector<float> dataVec;
+
+			const float* get(uint32_t id, size_t nsQ, size_t L) const
+			{
+				if(nsQ && id % nsQ == n) return &dataVec[id / nsQ * L];
+				auto it = dataMap.find(id);
+				if (it != dataMap.end()) return &it->second[0];
+				return nullptr;
+			}
+		};
+
+		std::unordered_map<uint32_t, MixedVectorCoef> coefs;
+		const std::vector<float>& unigramDist;
+
+		LLEvaluater(size_t _L, size_t _negativeSampleSize, size_t _windowLen,
+			size_t _nsQ, std::vector<uint32_t>&& _wordIds, 
+			std::unordered_map<uint32_t, MixedVectorCoef>&& _coefs,
+			const std::vector<float>& _unigramDist)
+			: L(_L), negativeSampleSize(_negativeSampleSize),
+			windowLen(_windowLen), nsQ(_nsQ),
+			wordIds(_wordIds), coefs(_coefs), unigramDist(_unigramDist)
+		{}
+
+	public:
+		float operator()(float timePoint) const;
+		std::tuple<float, float, float> fgh(float timePoint) const;
+		std::tuple<float, float> gh(float timePoint) const;
+	};
+
 private:
 	struct ThreadLocalData
 	{
@@ -72,6 +110,7 @@ private:
 	ThreadLocalData globalData;
 	WordDictionary<> vocabs;
 
+	std::vector<float> unigramDist;
 	std::discrete_distribution<uint32_t> unigramTable;
 	size_t negativeSampleSize = 0;
 
@@ -80,6 +119,7 @@ private:
 	std::mutex mtx;
 
 	static std::vector<float> makeCoef(size_t L, float z);
+	static std::vector<float> makeDCoef(size_t L, float z);
 	Eigen::VectorXf makeTimedVector(size_t wv, const std::vector<float>& coef) const;
 
 	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const std::vector<float>& lWeight);
@@ -87,6 +127,7 @@ private:
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
 	void buildModel();
+	void buildTable();
 	void trainVectors(const uint32_t* ws, size_t N, float timePoint,
 		size_t window_length, float start_lr, size_t report);
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
@@ -103,7 +144,8 @@ public:
 
 	TimeGramModel(TimeGramModel&& o)
 		: M(o.M), L(o.L), globalData(o.globalData),
-		vocabs(std::move(o.vocabs)), frequencies(std::move(o.frequencies)),
+		vocabs(std::move(o.vocabs)), frequencies(std::move(o.frequencies)), 
+		unigramTable(std::move(o.unigramTable)), unigramDist(std::move(o.unigramDist)),
 		in(std::move(o.in)), out(std::move(o.out)), zBias(o.zBias), zSlope(o.zSlope)
 	{
 	}
@@ -115,6 +157,8 @@ public:
 		globalData = o.globalData;
 		vocabs = std::move(o.vocabs);
 		frequencies = std::move(o.frequencies);
+		unigramTable = std::move(o.unigramTable);
+		unigramDist = std::move(o.unigramDist);
 		in = std::move(o.in);
 		out = std::move(o.out);
 		zBias = o.zBias;
@@ -134,6 +178,9 @@ public:
 		const std::vector<std::pair<std::string, float>>& negativeWords,
 		float searchingTimePoint, size_t K = 10) const;
 
+	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen, size_t nsQ = 16) const;
+	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, size_t windowLen, size_t nsQ = 16, size_t initStep = 24) const;
+
 	const std::vector<std::string>& getVocabs() const
 	{
 		return vocabs.getKeys();
@@ -145,5 +192,6 @@ public:
 	float getMinPoint() const { return zBias; }
 	float getMaxPoint() const { return zBias + 1 / zSlope; }
 	float normalizeTimePoint(float t) const { return (t - zBias) * zSlope; }
+	float unnormalizeTimePoint(float t) const { return t / zSlope + zBias; }
 };
 
