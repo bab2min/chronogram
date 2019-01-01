@@ -8,8 +8,8 @@ inline float sigmoid(float x)
 
 struct F_logsigmoid
 {
-	float operator()(float x) { return -log(1 + exp(-x)); }
-	float forLarge(float x) { return -0.f; }
+	double operator()(double x) { return -log(1 + exp(-x)); }
+	double forLarge(double x) { return -0.f; }
 };
 
 template<class _Func, size_t N, size_t S>
@@ -48,6 +48,6 @@ public:
 
 inline float logsigmoid(float x)
 {
-	if (x >= 0) return SimpleLUT<F_logsigmoid, 32 * 128, 128>::get(x);
-	return SimpleLUT<F_logsigmoid, 32 * 128, 128>::get(-x) + x;
+	if (x >= 0) return SimpleLUT<F_logsigmoid, 32 * 256, 256>::get(x);
+	return SimpleLUT<F_logsigmoid, 32 * 256, 256>::get(-x) + x;
 }
