@@ -21,7 +21,7 @@ using namespace std;
 
 struct Args
 {
-	string input, load, save, eval;
+	string input, load, save, eval, result;
 	int worker = 0, window = 4, dimension = 100;
 	int order = 5, epoch = 1, negative = 5;
 	int batch = 10000, minCnt = 10;
@@ -45,6 +45,7 @@ int main(int argc, char* argv[])
 			("l,load", "Load Model File", cxxopts::value<string>(), "Model file path to be loaded")
 			("v,save", "Save Model File", cxxopts::value<string>(), "Model file path to be saved")
 			("eval", "Evaluation set File", cxxopts::value<string>(), "Evaluation set file path")
+			("result", "Evaluation Result File", cxxopts::value<string>(), "Evaluation result file path")
 			("h,help", "Help")
 			("version", "Version")
 
@@ -86,6 +87,7 @@ int main(int argc, char* argv[])
 			READ_OPT(save, string);
 			READ_OPT(input, string);
 			READ_OPT(eval, string);
+			READ_OPT(result, string);
 
 			READ_OPT(worker, int);
 			READ_OPT(window, int);
@@ -172,7 +174,8 @@ int main(int argc, char* argv[])
 		cout << "Evaluating Time Prediction: " << args.eval << endl;
 		Timer timer;
 		ifstream ifs{ args.eval };
-		ofstream ofs{ args.eval + ".result" };
+		if (args.result.empty()) args.result = args.eval + ".result";
+		ofstream ofs{ args.result };
 		string line;
 		float avgErr = 0;
 		size_t n = 0;
