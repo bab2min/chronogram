@@ -38,7 +38,7 @@ public:
 
 	ValueType getOrAdd(const KeyType& str)
 	{
-		std::lock_guard<std::mutex> lg(mtx);
+		//std::lock_guard<std::mutex> lg(mtx);
 		auto it = word2id.find(str);
 		if (it != word2id.end()) return it->second;
 		return add(str);

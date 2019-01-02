@@ -4,6 +4,7 @@
 #include <random>
 #include <functional>
 #include <mutex>
+#include <atomic>
 #include <Eigen/Dense>
 #include "dictionary.h"
 #include "Timer.h"
@@ -25,7 +26,7 @@ struct VocabCounter
 		{
 			if (!test(*begin)) continue;
 			size_t id = rdict.getOrAdd(trans(*begin));
-			if (id >= rfreqs.size()) rfreqs.resize(id + 1);
+			while (id >= rfreqs.size()) rfreqs.emplace_back(0);
 			rfreqs[id]++;
 		}
 	}

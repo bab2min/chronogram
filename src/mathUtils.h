@@ -48,6 +48,6 @@ public:
 
 inline float logsigmoid(float x)
 {
-	if (x >= 0) return SimpleLUT<F_logsigmoid, 32 * 256, 256>::get(x);
-	return SimpleLUT<F_logsigmoid, 32 * 256, 256>::get(-x) + x;
+	if (x >= 0) return SimpleLUT<F_logsigmoid, 32 * 1024, 1024>::get(x);
+	return SimpleLUT<F_logsigmoid, 32 * 1024, 1024>::get(-x) + x;
 }

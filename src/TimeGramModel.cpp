@@ -234,22 +234,48 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 		timer.reset();
 	}
 }
+
+
 void TimeGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt)
 {
-	VocabCounter vc;
 	float minT = INFINITY, maxT = -INFINITY;
-	for(size_t id = 0; ; ++id)
+	VocabCounter vc;
+	/*if (thread::hardware_concurrency() > 1)
 	{
-		auto res = reader(id);
-		if (res.stop) break;
-		if (res.words.empty()) continue;
-		minT = min(res.timePoint, minT);
-		maxT = max(res.timePoint, maxT);
-		vc.update(res.words.begin(), res.words.end(), VocabCounter::defaultTest, VocabCounter::defaultTrans);
+		ThreadPool workers{ 1 };
+		mutex inputMutex;
+		condition_variable inputCond;
+		for (size_t id = 0; ; ++id)
+		{
+			auto res = reader(id);
+			if (res.stop) break;
+			if (res.words.empty()) continue;
+			minT = min(res.timePoint, minT);
+			maxT = max(res.timePoint, maxT);
+			unique_lock<mutex> l(inputMutex);
+			inputCond.wait(l, [&]() { return workers.getNumEnqued() < workers.getNumWorkers() * 4; });
+			workers.enqueue([&, this](size_t tid, vector<string> words)
+			{
+				vc.update(words.begin(), words.end(),
+					VocabCounter::defaultTest, VocabCounter::defaultTrans);
+				inputCond.notify_one();
+			}, move(res.words));
+		}
+	}
+	else*/
+	{
+		for (size_t id = 0; ; ++id)
+		{
+			auto res = reader(id);
+			if (res.stop) break;
+			if (res.words.empty()) continue;
+			minT = min(res.timePoint, minT);
+			maxT = max(res.timePoint, maxT);
+			vc.update(res.words.begin(), res.words.end(), VocabCounter::defaultTest, VocabCounter::defaultTrans);
+		}
 	}
 	zBias = minT;
 	zSlope = minT == maxT ? 1 : 1 / (maxT - minT);
-
 	for (size_t i = 0; i < vc.rdict.size(); ++i)
 	{
 		if (vc.rfreqs[i] < minCnt) continue;
