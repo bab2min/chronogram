@@ -27,6 +27,7 @@ struct Args
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
 	int nsQ = 8, initStep = 10;
+	float eta = 1.f;
 };
 
 int main(int argc, char* argv[])
@@ -60,6 +61,7 @@ int main(int argc, char* argv[])
 			("report", "", cxxopts::value<int>())
 			("nsQ", "", cxxopts::value<int>())
 			("initStep", "", cxxopts::value<int>())
+			("eta", "", cxxopts::value<float>())
 			;
 
 		//options.parse_positional({ "model", "input", "topic" });
@@ -99,6 +101,8 @@ int main(int argc, char* argv[])
 			READ_OPT(minCnt, int);
 			READ_OPT(nsQ, int);
 			READ_OPT(initStep, int);
+
+			READ_OPT(eta, float);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -121,7 +125,8 @@ int main(int argc, char* argv[])
 
 	cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 	cout << "Workers: " << args.worker << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
-	TimeGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative };
+	cout << "Eta: " << args.eta << endl;
+	TimeGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative, args.eta };
 	if (!args.load.empty())
 	{
 		cout << "Loading Model: " << args.load << endl;
@@ -187,8 +192,10 @@ int main(int argc, char* argv[])
 			float timePoint = stof(time);
 			vector<string> words{ iBegin, iEnd };
 			auto llp = tgm.predictSentTime(words, args.window, args.nsQ, args.initStep);
-			float normalizedErr = tgm.normalizeTimePoint(timePoint) - tgm.normalizeTimePoint(llp.first);
-			ofs << timePoint << "\t" << llp.first << "\t" << llp.second << "\t" << timePoint - llp.first << "\t" << normalizedErr << endl;
+			float normalizedErr = tgm.normalizedTimePoint(timePoint) - tgm.normalizedTimePoint(llp.first);
+			ofs << timePoint << "\t" << llp.first << "\t" << llp.second
+				<< "\t" << llp.second / (args.window * 2 * words.size())
+				<< "\t" << timePoint - llp.first << "\t" << normalizedErr << endl;
 			avgErr += pow(normalizedErr, 2);
 			n++;
 		}
@@ -251,7 +258,19 @@ int main(int argc, char* argv[])
 			for (size_t i = 0; i <= args.initStep; ++i)
 			{
 				float z = i / (float)args.initStep;
-				cout << tgm.unnormalizeTimePoint(z) << ": " << evaluator(z) << endl;
+				cout << tgm.unnormalizedTimePoint(z) << ": " << evaluator(z) << endl;
+			}
+		}
+		else if (line[0] == '!') // estimate time of word
+		{
+			stringstream iss{ line.substr(1) };
+			istream_iterator<string> wBegin{ iss }, wEnd{};
+			vector<string> words{ wBegin, wEnd };
+			for (size_t i = 0; i <= args.initStep; ++i)
+			{
+				float z = i / (float)args.initStep;
+				cout << tgm.unnormalizedTimePoint(z) << ": " << 
+					tgm.getWordProbByTime(words[0], tgm.unnormalizedTimePoint(z)) << endl;
 			}
 		}
 		else // find most similar word
@@ -297,6 +316,11 @@ int main(int argc, char* argv[])
 					lastInput = &(sign ? negatives : positives).back();
 					sign = false;
 				}
+			}
+
+			for (auto& p : positives)
+			{
+				cout << "P(@" << p.second << "|" << p.first << ") = " << tgm.getWordProbByTime(p.first, p.second) << endl;
 			}
 
 			cout << "==== Most Similar at " << searchingTimePoint << " ====" << endl;

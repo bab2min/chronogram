@@ -95,18 +95,22 @@ private:
 	};
 
 	std::vector<size_t> frequencies; // (V)
+	std::vector<size_t> wordProcd;
 	Eigen::MatrixXf in; // (M, L * V)
 	Eigen::MatrixXf out; // (M, V)
+	Eigen::MatrixXf wordDist; // (L, V)
 	size_t M; // dimension of word vector
 	size_t L; // order of Lengendre polynomial
 	float subsampling;
 	float zBias = 0, zSlope = 1;
+	float eta = 1.f;
 	Mode mode;
 
 	size_t totalWords = 0;
 	size_t procWords = 0, lastProcWords = 0;
 	size_t totalLLCnt = 0;
 	double totalLL = 0;
+	double avgWordDistErr = 0;
 
 	ThreadLocalData globalData;
 	WordDictionary<> vocabs;
@@ -119,24 +123,28 @@ private:
 
 	std::mutex mtx;
 
-	static std::vector<float> makeCoef(size_t L, float z);
-	static std::vector<float> makeDCoef(size_t L, float z);
-	Eigen::VectorXf makeTimedVector(size_t wv, const std::vector<float>& coef) const;
+	static Eigen::VectorXf makeCoef(size_t L, float z);
+	static Eigen::VectorXf makeDCoef(size_t L, float z);
+	Eigen::VectorXf makeTimedVector(size_t wv, const Eigen::VectorXf& coef) const;
 
-	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const std::vector<float>& lWeight);
-	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const std::vector<float>& lWeight,
+	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight);
+	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
 	void buildModel();
 	void buildTable();
 	void trainVectors(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr, size_t report);
+		size_t window_length, float start_lr, size_t nEpoch, size_t report);
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr, size_t report, ThreadLocalData& ld);
+		size_t window_length, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld);
+	void normalizeWordDist();
+
+	float getWordProbByTime(uint32_t w, float timePoint) const;
 public:
 	TimeGramModel(size_t _M = 100, size_t _L = 6,
-		float _subsampling = 1e-4, size_t _negativeSampleSize = 5, size_t seed = std::random_device()())
-		: M(_M), L(_L), subsampling(_subsampling),
+		float _subsampling = 1e-4, size_t _negativeSampleSize = 5, float _eta = 1.f,
+		size_t seed = std::random_device()())
+		: M(_M), L(_L), subsampling(_subsampling), eta(_eta),
 		mode(_negativeSampleSize ? Mode::negativeSampling : Mode::hierarchicalSoftmax),
 		negativeSampleSize(_negativeSampleSize)
 	{
@@ -192,7 +200,9 @@ public:
 
 	float getMinPoint() const { return zBias; }
 	float getMaxPoint() const { return zBias + 1 / zSlope; }
-	float normalizeTimePoint(float t) const { return (t - zBias) * zSlope; }
-	float unnormalizeTimePoint(float t) const { return t / zSlope + zBias; }
+	float normalizedTimePoint(float t) const { return (t - zBias) * zSlope; }
+	float unnormalizedTimePoint(float t) const { return t / zSlope + zBias; }
+
+	float getWordProbByTime(const std::string& word, float timePoint) const;
 };
 
