@@ -28,7 +28,7 @@ struct Args
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
 	int nsQ = 8, initStep = 10;
-	float eta = 1.f;
+	float eta = 1.f, zeta = .125f;
 };
 
 int main(int argc, char* argv[])
@@ -63,6 +63,7 @@ int main(int argc, char* argv[])
 			("nsQ", "", cxxopts::value<int>())
 			("initStep", "", cxxopts::value<int>())
 			("eta", "", cxxopts::value<float>())
+			("z,zeta", "", cxxopts::value<float>())
 			;
 
 		//options.parse_positional({ "model", "input", "topic" });
@@ -104,6 +105,7 @@ int main(int argc, char* argv[])
 			READ_OPT(initStep, int);
 
 			READ_OPT(eta, float);
+			READ_OPT(zeta, float);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -126,7 +128,7 @@ int main(int argc, char* argv[])
 
 	cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 	cout << "Workers: " << args.worker << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
-	cout << "Eta: " << args.eta << endl;
+	cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << endl;
 	TimeGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative, args.eta };
 	if (!args.load.empty())
 	{
@@ -164,7 +166,8 @@ int main(int argc, char* argv[])
 		};
 		tgm.buildVocab(reader, args.minCnt);
 		cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size() << endl;
-		tgm.train(reader, args.worker, args.window, .025f, args.batch, args.epoch);
+		tgm.train(reader, args.worker, args.window, .025f, args.batch, 
+			args.epoch, args.zeta, args.report);
 
 		cout << "Finished in " << timer.getElapsed() << " sec" << endl;
 		if (!args.save.empty())

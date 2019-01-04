@@ -53,22 +53,18 @@ VectorXf TimeGramModel::makeDCoef(size_t L, float z)
 
 VectorXf TimeGramModel::makeTimedVector(size_t wv, const VectorXf& coef) const
 {
-	VectorXf vec = VectorXf::Zero(M);
+	/*VectorXf vec = VectorXf::Zero(M);
 	for (size_t l = 0; l < L; ++l)
 	{
 		vec += coef[l] * in.col(wv * L + l);
-	}
-	return vec;
+	}*/
+	return in.block(0, wv * L, M, L) * coef;
 }
 
 float TimeGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative, const VectorXf& lWeight)
 {
 	auto outcol = out.col(y);
-	VectorXf inSum = VectorXf::Zero(M);
-	for (size_t l = 0; l < L; ++l)
-	{
-		inSum += lWeight[l] * in.col(x * L + l);
-	}
+	VectorXf inSum = makeTimedVector(x, lWeight);
 	float f = inSum.dot(outcol);
 	float pr = logsigmoid(f * (negative ? -1 : 1));
 
@@ -90,11 +86,7 @@ float TimeGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool negati
 	Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad, Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad)
 {
 	auto outcol = out.col(y);
-	VectorXf inSum = VectorXf::Zero(M);
-	for (size_t l = 0; l < L; ++l)
-	{
-		inSum += lWeight[l] * in.col(x * L + l);
-	}
+	VectorXf inSum = makeTimedVector(x, lWeight);
 	float f = inSum.dot(outcol);
 	float pr = logsigmoid(f * (negative ? -1 : 1));
 
@@ -109,10 +101,16 @@ float TimeGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool negati
 
 
 void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
-	size_t window_length, float start_lr, size_t nEpoch, size_t report)
+	size_t window_length, float start_lr, size_t nEpoch, float zeta, size_t report)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
+
+	VectorXf avgNegCoef = VectorXf::Zero(L);
+	for (size_t l = 0; l < L; ++l)
+	{
+		avgNegCoef[l] = l % 2 ? 0.f : (1.f / (1.f - l * l));
+	}
 
 	for (size_t i = 0; i < N; ++i)
 	{
@@ -143,15 +141,24 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 
 
 		// estimating density of the word x
-		float densityErr;
+		/*float densityErr;
 		float lr2 = max(start_lr * (1 - wordProcd[x] / (frequencies[x] * nEpoch + 1.f)), start_lr * 1e-4f);
 		wordDist.col(x) += (densityErr = 1 - coef.dot(wordDist.col(x))) * lr2 * coef;
 		avgWordDistErr += pow(densityErr, 2);
 		auto negCoef = makeCoef(L, generate_canonical<float, 24>(globalData.rg));
 		wordDist.col(x) += (densityErr = 0 - negCoef.dot(wordDist.col(x))) * lr2 * negCoef;
-		avgWordDistErr += pow(densityErr, 2);
+		avgWordDistErr += pow(densityErr, 2);*/
 		
 		wordProcd[x]++;
+
+		if (zeta > 0)
+		{
+			auto g = makeTimedVector(x, avgNegCoef) * -lr1 * zeta;
+			for (size_t l = 0; l < L; ++l)
+			{
+				in.col(x * L + l) += g * avgNegCoef[l];
+			}
+		}
 
 		if (report && procWords % report == 0)
 		{
@@ -169,10 +176,16 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 
 
 void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timePoint,
-	size_t window_length, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld)
+	size_t window_length, float start_lr, size_t nEpoch, float zeta, size_t report, ThreadLocalData& ld)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
+	VectorXf avgNegCoef = VectorXf::Zero(L);
+	for (size_t l = 0; l < L; ++l)
+	{
+		avgNegCoef[l] = l % 2 ? 0.f : (1.f / (1.f - l * l));
+	}
+
 	float llSum = 0;
 	size_t llCnt = 0;
 
@@ -244,18 +257,12 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 				out.col(p.first) += ld.updateOutMat.col(p.second);
 			}
 
-			for (size_t n = 0; n < 1; ++n)
+			if (zeta > 0)
 			{
-				//auto negCoef = makeCoef(L, generate_canonical<float, 24>(globalData.rg));
-				VectorXf negCoef = VectorXf::Zero(L);
+				auto g = makeTimedVector(x, avgNegCoef) * -lr1 * zeta;
 				for (size_t l = 0; l < L; ++l)
 				{
-					negCoef[l] = l % 2 ? 0.f : (1.f / (1.f - l * l));
-				}
-				auto g = makeTimedVector(x, negCoef) * -lr1 * 0.125f;
-				for (size_t l = 0; l < L; ++l)
-				{
-					in.col(x * L + l) += g * negCoef[l];
+					in.col(x * L + l) += g * avgNegCoef[l];
 				}
 			}
 			
@@ -352,7 +359,8 @@ void TimeGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, 
 }
 
 void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
-	size_t numWorkers, size_t window_length, float start_lr, size_t batch, size_t epoch, size_t report)
+	size_t numWorkers, size_t window_length, float start_lr, size_t batch,
+	size_t epoch, float zeta, size_t report)
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
 	ThreadPool workers{ numWorkers };
@@ -388,7 +396,8 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 			{
 				futures.emplace_back(workers.enqueue([&](size_t threadId)
 				{
-					trainVectorsMulti(d.first.data(), d.first.size(), d.second, window_length, start_lr, epoch, report, ld[threadId]);
+					trainVectorsMulti(d.first.data(), d.first.size(), d.second,
+						window_length, start_lr, epoch, zeta, report, ld[threadId]);
 				}));
 			}
 			for (auto& f : futures) f.get();
@@ -397,7 +406,8 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 		{
 			for (auto& d : collections)
 			{
-				trainVectors(d.first.data(), d.first.size(), d.second, window_length, start_lr, epoch, report);
+				trainVectors(d.first.data(), d.first.size(), d.second,
+					window_length, start_lr, epoch, zeta, report);
 			}
 		}
 		collections.clear();

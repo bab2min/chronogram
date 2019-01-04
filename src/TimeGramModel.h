@@ -134,9 +134,9 @@ private:
 	void buildModel();
 	void buildTable();
 	void trainVectors(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr, size_t nEpoch, size_t report);
+		size_t window_length, float start_lr, size_t nEpoch, float zeta, size_t report);
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld);
+		size_t window_length, float start_lr, size_t nEpoch, float zeta, size_t report, ThreadLocalData& ld);
 	void normalizeWordDist();
 
 	float getWordProbByTime(uint32_t w, float timePoint) const;
@@ -177,7 +177,7 @@ public:
 
 	void buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt = 10);
 	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
-		size_t window_length = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
+		size_t window_length = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, float zeta = 0.125f, size_t report = 10000);
 
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
 	std::vector<std::tuple<std::string, float>> nearestNeighbors(const std::string& word, 
