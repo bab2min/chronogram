@@ -219,7 +219,7 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 			lock_guard<mutex> lock(mtx);
 
 			// estimating density of the word x
-			float density;
+			/*float density;
 			float lr2 = max(start_lr * (1 - wordProcd[x] / (frequencies[x] * nEpoch + 1.f)), start_lr * 1e-4f);
 			density = coef.dot(wordDist.col(x));
 			wordDist.col(x) += (1 - density) * lr2 * coef;
@@ -230,7 +230,7 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 				density = negCoef.dot(wordDist.col(x));
 				wordDist.col(x) += -density * lr2 * negCoef;
 				avgWordDistErr += pow(density, 2);
-			}
+			}*/
 
 			wordProcd[x]++;
 
@@ -243,6 +243,25 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 			{
 				out.col(p.first) += ld.updateOutMat.col(p.second);
 			}
+
+			/*
+			{
+				float g = makeTimedVector(x, coef).norm() * lr1 * 0.1f;
+				for (size_t l = 0; l < L; ++l)
+				{
+					in.col(x * L + l) += g * in.col(x * L + l) * coef[l];
+				}
+			}
+			for (size_t n = 0; n < 1; ++n)
+			{
+				auto negCoef = makeCoef(L, generate_canonical<float, 24>(globalData.rg));
+				float g = -makeTimedVector(x, negCoef).norm() * lr1 * 0.1f;
+				for (size_t l = 0; l < L; ++l)
+				{
+					in.col(x * L + l) += g * in.col(x * L + l) * negCoef[l];
+				}
+			}
+			*/
 		}
 		ld.updateOutMat.setZero();
 		ld.updateOutIdx.clear();
@@ -613,6 +632,13 @@ pair<float, float> TimeGramModel::predictSentTime(const std::vector<std::string>
 		}
 	}*/
 	return make_pair(unnormalizedTimePoint(maxP), maxLL);
+}
+
+MatrixXf TimeGramModel::getEmbedding(const string & word) const
+{
+	size_t wv = vocabs.get(word);
+	if (wv == (size_t)-1) return {};
+	return in.block(0, wv * L, M, L);
 }
 
 void TimeGramModel::saveModel(ostream & os) const

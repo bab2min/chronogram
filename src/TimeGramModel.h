@@ -195,6 +195,8 @@ public:
 		return vocabs.getKeys();
 	}
 
+	Eigen::MatrixXf getEmbedding(const std::string& word) const;
+
 	void saveModel(std::ostream& os) const;
 	static TimeGramModel loadModel(std::istream& is);
 

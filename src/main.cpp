@@ -9,6 +9,7 @@
 #include <numeric>
 #include <string>
 #include <iostream>
+#include <iomanip>
 #include <sstream>
 #include <iterator>
 #include <fstream>
@@ -273,6 +274,25 @@ int main(int argc, char* argv[])
 					tgm.getWordProbByTime(words[0], tgm.unnormalizedTimePoint(z)) << endl;
 			}
 		}
+		else if (line[0] == '#') // estimate time of word
+		{
+			stringstream iss{ line.substr(1) };
+			istream_iterator<string> wBegin{ iss }, wEnd{};
+			vector<string> words{ wBegin, wEnd };
+			for (auto& w : words)
+			{
+				auto mat = tgm.getEmbedding(w);
+				for (size_t i = 0; i < mat.cols(); ++i)
+				{
+					cout << setprecision(3);
+					for (size_t j = 0; j < mat.rows(); ++j)
+					{
+						cout << mat(j, i) << ", ";
+					}
+					cout << endl;
+				}
+			}
+		}
 		else // find most similar word
 		{
 			vector<pair<string, float>> positives, negatives;
@@ -318,10 +338,10 @@ int main(int argc, char* argv[])
 				}
 			}
 
-			for (auto& p : positives)
+			/*for (auto& p : positives)
 			{
 				cout << "P(@" << p.second << "|" << p.first << ") = " << tgm.getWordProbByTime(p.first, p.second) << endl;
-			}
+			}*/
 
 			cout << "==== Most Similar at " << searchingTimePoint << " ====" << endl;
 			for (auto& p : tgm.mostSimilar(positives, negatives, searchingTimePoint, 20))
