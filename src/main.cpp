@@ -284,7 +284,7 @@ int main(int argc, char* argv[])
 				auto mat = tgm.getEmbedding(w);
 				for (size_t i = 0; i < mat.cols(); ++i)
 				{
-					cout << setprecision(3);
+					//cout << setprecision(3);
 					for (size_t j = 0; j < mat.rows(); ++j)
 					{
 						cout << mat(j, i) << ", ";
@@ -296,6 +296,7 @@ int main(int argc, char* argv[])
 		else // find most similar word
 		{
 			vector<pair<string, float>> positives, negatives;
+			vector<string> positivesO, negativesO;
 			pair<string, float>* lastInput = nullptr;
 			istringstream iss{ line };
 			istream_iterator<string> wBegin{ iss }, wEnd{};
@@ -333,6 +334,7 @@ int main(int argc, char* argv[])
 				else
 				{
 					(sign ? negatives : positives).emplace_back(word, tgm.getMinPoint());
+					(sign ? negativesO : positivesO).emplace_back(word);
 					lastInput = &(sign ? negatives : positives).back();
 					sign = false;
 				}
@@ -345,6 +347,13 @@ int main(int argc, char* argv[])
 
 			cout << "==== Most Similar at " << searchingTimePoint << " ====" << endl;
 			for (auto& p : tgm.mostSimilar(positives, negatives, searchingTimePoint, 20))
+			{
+				cout << get<0>(p) << '\t' << get<1>(p) << endl;
+			}
+			cout << endl;
+
+			cout << "==== Most Similar Overall ====" << endl;
+			for (auto& p : tgm.mostSimilar(positivesO, negativesO, 20))
 			{
 				cout << get<0>(p) << '\t' << get<1>(p) << endl;
 			}

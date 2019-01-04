@@ -244,24 +244,21 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 				out.col(p.first) += ld.updateOutMat.col(p.second);
 			}
 
-			/*
-			{
-				float g = makeTimedVector(x, coef).norm() * lr1 * 0.1f;
-				for (size_t l = 0; l < L; ++l)
-				{
-					in.col(x * L + l) += g * in.col(x * L + l) * coef[l];
-				}
-			}
 			for (size_t n = 0; n < 1; ++n)
 			{
-				auto negCoef = makeCoef(L, generate_canonical<float, 24>(globalData.rg));
-				float g = -makeTimedVector(x, negCoef).norm() * lr1 * 0.1f;
+				//auto negCoef = makeCoef(L, generate_canonical<float, 24>(globalData.rg));
+				VectorXf negCoef = VectorXf::Zero(L);
 				for (size_t l = 0; l < L; ++l)
 				{
-					in.col(x * L + l) += g * in.col(x * L + l) * negCoef[l];
+					negCoef[l] = l % 2 ? 0.f : (1.f / (1.f - l * l));
+				}
+				auto g = makeTimedVector(x, negCoef) * -lr1 * 0.125f;
+				for (size_t l = 0; l < L; ++l)
+				{
+					in.col(x * L + l) += g * negCoef[l];
 				}
 			}
-			*/
+			
 		}
 		ld.updateOutMat.setZero();
 		ld.updateOutIdx.clear();
@@ -539,6 +536,54 @@ vector<tuple<string, float>> TimeGramModel::mostSimilar(
 	}
 	return top;
 }
+
+vector<tuple<string, float>> TimeGramModel::mostSimilar(
+	const vector<string>& positiveWords,
+	const vector<string>& negativeWords,
+	size_t K) const
+{
+	VectorXf vec = VectorXf::Zero(M);
+	const size_t V = vocabs.size();
+	unordered_set<size_t> uniqs;
+	for (auto& p : positiveWords)
+	{
+		size_t wv = vocabs.get(p);
+		if (wv == (size_t)-1) return {};
+		vec += out.col(wv);
+		uniqs.emplace(wv);
+	}
+
+	for (auto& p : negativeWords)
+	{
+		size_t wv = vocabs.get(p);
+		if (wv == (size_t)-1) return {};
+		vec -= out.col(wv);
+		uniqs.emplace(wv);
+	}
+
+	vec.normalize();
+
+	vector<tuple<string, float>> top;
+	VectorXf sim(V);
+	for (size_t v = 0; v < V; ++v)
+	{
+		if (uniqs.count(v))
+		{
+			sim(v) = -INFINITY;
+			continue;
+		}
+		sim(v) = out.col(v).normalized().dot(vec);
+	}
+
+	for (size_t k = 0; k < K; ++k)
+	{
+		size_t idx = max_element(sim.data(), sim.data() + sim.size()) - sim.data();
+		top.emplace_back(vocabs.getStr(idx), sim.data()[idx]);
+		sim.data()[idx] = -INFINITY;
+	}
+	return top;
+}
+
 
 TimeGramModel::LLEvaluater TimeGramModel::evaluateSent(const std::vector<std::string>& words, size_t windowLen, size_t nsQ) const
 {

@@ -186,6 +186,10 @@ public:
 		const std::vector<std::pair<std::string, float>>& positiveWords,
 		const std::vector<std::pair<std::string, float>>& negativeWords,
 		float searchingTimePoint, size_t K = 10) const;
+	std::vector<std::tuple<std::string, float>> mostSimilar(
+		const std::vector<std::string>& positiveWords,
+		const std::vector<std::string>& negativeWords,
+		size_t K = 10) const;
 
 	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen, size_t nsQ = 16) const;
 	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, size_t windowLen, size_t nsQ = 16, size_t initStep = 24) const;
