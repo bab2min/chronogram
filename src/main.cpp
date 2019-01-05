@@ -23,13 +23,55 @@ using namespace std;
 
 struct Args
 {
-	string input, load, save, eval, result;
+	string load, save, eval, result;
+	vector<string> input;
 	int worker = 0, window = 4, dimension = 100;
 	int order = 5, epoch = 1, negative = 5;
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
 	int nsQ = 8, initStep = 10;
 	float eta = 1.f, zeta = .125f;
+};
+
+struct MultipleReader
+{
+	vector<string> files;
+	size_t currentId = 0;
+	ifstream ifs;
+
+	MultipleReader(const vector<string>& _files) : files(_files)
+	{
+		ifs = ifstream{ files[currentId] };
+	}
+
+	TimeGramModel::ReadResult operator()(size_t id)
+	{
+		TimeGramModel::ReadResult rr;
+		string line;
+		if (id == 0)
+		{
+			currentId = 0;
+			ifs = ifstream{ files[currentId] };
+		}
+
+		while (currentId < files.size())
+		{
+			while (getline(ifs, line))
+			{
+				istringstream iss{ line };
+				istream_iterator<string> iBegin{ iss }, iEnd{};
+				string time = *iBegin++;
+				rr.timePoint = stof(time);
+				copy(iBegin, iEnd, back_inserter(rr.words));
+				if (rr.words.empty()) continue;
+				return rr;
+			}
+			if (++currentId >= files.size()) break;
+			ifs = ifstream{ files[currentId] };
+		}
+		rr.stop = true;
+		return rr;
+	}
 };
 
 int main(int argc, char* argv[])
@@ -43,7 +85,6 @@ int main(int argc, char* argv[])
 			.show_positional_help();
 		*/
 		options.add_options()
-			/*("mode", "", cxxopts::value<string>(), "train, load")*/
 			("i,input", "Input File", cxxopts::value<string>(), "Input file path that contains documents per line")
 			("l,load", "Load Model File", cxxopts::value<string>(), "Model file path to be loaded")
 			("v,save", "Save Model File", cxxopts::value<string>(), "Model file path to be saved")
@@ -67,8 +108,6 @@ int main(int argc, char* argv[])
 			("z,zeta", "", cxxopts::value<float>())
 			;
 
-		//options.parse_positional({ "model", "input", "topic" });
-
 		try
 		{
 			auto result = options.parse(argc, argv);
@@ -88,11 +127,17 @@ int main(int argc, char* argv[])
 #define READ_OPT(P, TYPE) if (result.count(#P)) args.P = result[#P].as<TYPE>()
 #define READ_OPT2(P, Q, TYPE) if (result.count(#P)) args.Q = result[#P].as<TYPE>()
 
+
 			READ_OPT(load, string);
 			READ_OPT(save, string);
-			READ_OPT(input, string);
 			READ_OPT(eval, string);
 			READ_OPT(result, string);
+
+			if (result.count("input")) args.input.emplace_back(result["input"].as<string>());
+			for (size_t i = 1; i < argc; ++i)
+			{
+				args.input.emplace_back(argv[i]);
+			}
 
 			READ_OPT(worker, int);
 			READ_OPT(window, int);
@@ -139,35 +184,18 @@ int main(int argc, char* argv[])
 	}
 	else if (!args.input.empty())
 	{
-		cout << "Training Input: " << args.input << endl;
-		Timer timer;
-		ifstream ifs{ args.input };
-		const auto reader = [&ifs](size_t id)
+		cout << "Training Input: ";
+		for (auto& s : args.input)
 		{
-			TimeGramModel::ReadResult rr;
-			string line;
-			if (id == 0)
-			{
-				ifs.clear();
-				ifs.seekg(0);
-			}
+			cout << s << "  ";
+		}
+		cout << endl;
 
-			while (getline(ifs, line))
-			{
-				istringstream iss{ line };
-				istream_iterator<string> iBegin{ iss }, iEnd{};
-				string time = *iBegin++;
-				rr.timePoint = stof(time);
-				copy(iBegin, iEnd, back_inserter(rr.words));
-				if (rr.words.empty()) continue;
-				return rr;
-			}
-			rr.stop = true;
-			return rr;
-		};
-		tgm.buildVocab(reader, args.minCnt);
+		Timer timer;
+		MultipleReader reader{ args.input };
+		tgm.buildVocab(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.minCnt);
 		cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size() << endl;
-		tgm.train(reader, args.worker, args.window, .025f, args.batch, 
+		tgm.train(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.worker, args.window, .025f, args.batch,
 			args.epoch, args.zeta, args.report);
 
 		cout << "Finished in " << timer.getElapsed() << " sec" << endl;
@@ -186,24 +214,17 @@ int main(int argc, char* argv[])
 		ifstream ifs{ args.eval };
 		if (args.result.empty()) args.result = args.eval + ".result";
 		ofstream ofs{ args.result };
-		string line;
 		float avgErr = 0;
 		size_t n = 0;
-		while (getline(ifs, line))
+		MultipleReader reader{ {args.eval} };
+		tgm.evaluate(bind(&MultipleReader::operator(), &reader, placeholders::_1), [&](TimeGramModel::EvalResult r)
 		{
-			istringstream iss{ line };
-			istream_iterator<string> iBegin{ iss }, iEnd{};
-			string time = *iBegin++;
-			float timePoint = stof(time);
-			vector<string> words{ iBegin, iEnd };
-			auto llp = tgm.predictSentTime(words, args.window, args.nsQ, args.initStep);
-			float normalizedErr = tgm.normalizedTimePoint(timePoint) - tgm.normalizedTimePoint(llp.first);
-			ofs << timePoint << "\t" << llp.first << "\t" << llp.second
-				<< "\t" << llp.second / (args.window * 2 * words.size())
-				<< "\t" << timePoint - llp.first << "\t" << normalizedErr << endl;
-			avgErr += pow(normalizedErr, 2);
+			ofs << r.trueTime << "\t" << r.estimatedTime << "\t" << r.ll
+				<< "\t" << r.llPerWord << "\t" << r.normalizedErr << endl;
+			avgErr += pow(r.normalizedErr, 2);
 			n++;
-		}
+		}, args.worker, args.window, args.nsQ, args.initStep);
+		
 		avgErr /= n;
 		cout << "== Evaluating Result ==" << endl;
 		cout << "Running Time: " << timer.getElapsed() << "s" << endl;

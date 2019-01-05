@@ -16,6 +16,7 @@ void TimeGramModel::buildModel()
 	const size_t V = vocabs.size();
 	// allocate & initialize model
 	in = MatrixXf::Random(M, L * V) * (.5f / M);
+	//in = MatrixXf::Zero(M, L * V);
 	out = MatrixXf::Random(M, V) * (.5f / M);
 	wordDist = MatrixXf::Constant(L, V, 0);
 	buildTable();
@@ -313,11 +314,29 @@ void TimeGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, 
 {
 	float minT = INFINITY, maxT = -INFINITY;
 	VocabCounter vc;
-	/*if (thread::hardware_concurrency() > 1)
+	if (thread::hardware_concurrency() > 1)
 	{
-		ThreadPool workers{ 1 };
-		mutex inputMutex;
-		condition_variable inputCond;
+		bool stop = false;
+		mutex inputMtx;
+		condition_variable inputCnd;
+		queue<vector<string>> workItems;
+		thread counter{ [&]()
+		{
+			while (!stop)
+			{
+				vector<string> item;
+				{
+					unique_lock<mutex> l{ inputMtx };
+					inputCnd.wait(l, [&]() {return stop || !workItems.empty(); });
+					if (stop && workItems.empty()) return;
+					item = move(workItems.front());
+					workItems.pop();
+				}
+				vc.update(item.begin(), item.end(),
+					VocabCounter::defaultTest, VocabCounter::defaultTrans);
+				inputCnd.notify_all();
+			}
+		} };
 		for (size_t id = 0; ; ++id)
 		{
 			auto res = reader(id);
@@ -325,17 +344,17 @@ void TimeGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, 
 			if (res.words.empty()) continue;
 			minT = min(res.timePoint, minT);
 			maxT = max(res.timePoint, maxT);
-			unique_lock<mutex> l(inputMutex);
-			inputCond.wait(l, [&]() { return workers.getNumEnqued() < workers.getNumWorkers() * 4; });
-			workers.enqueue([&, this](size_t tid, vector<string> words)
 			{
-				vc.update(words.begin(), words.end(),
-					VocabCounter::defaultTest, VocabCounter::defaultTrans);
-				inputCond.notify_one();
-			}, move(res.words));
+				unique_lock<mutex> l(inputMtx);
+				if(workItems.size() >= 4) inputCnd.wait(l, [&]() { return workItems.size() < 4; });
+				workItems.emplace(move(res.words));
+			}
+			inputCnd.notify_all();
 		}
+		stop = true;
+		counter.join();
 	}
-	else*/
+	else
 	{
 		for (size_t id = 0; ; ++id)
 		{
@@ -472,31 +491,7 @@ float TimeGramModel::arcLengthOfWord(const string & word, size_t step) const
 vector<tuple<string, float>> TimeGramModel::nearestNeighbors(const string & word,
 	float wordTimePoint, float searchingTimePoint, size_t K) const
 {
-	const size_t V = vocabs.size();
-	size_t wv = vocabs.get(word);
-	if (wv == (size_t)-1) return {};
-	VectorXf coef = makeCoef(L, normalizedTimePoint(searchingTimePoint));
-	VectorXf vec = makeTimedVector(wv, makeCoef(L, normalizedTimePoint(wordTimePoint))).normalized();
-
-	vector<tuple<string, float>> top;
-	VectorXf sim(V);
-	for (size_t v = 0; v < V; ++v)
-	{
-		if (v == wv)
-		{
-			sim(v) = -INFINITY;
-			continue;
-		}
-		sim(v) = makeTimedVector(v, coef).normalized().dot(vec);
-	}
-
-	for (size_t k = 0; k < K; ++k)
-	{
-		size_t idx = max_element(sim.data(), sim.data() + sim.size()) - sim.data();
-		top.emplace_back(vocabs.getStr(idx), sim.data()[idx]);
-		sim.data()[idx] = -INFINITY;
-	}
-	return top;
+	return mostSimilar({ make_pair(word, wordTimePoint) }, {}, searchingTimePoint, K);
 }
 
 vector<tuple<string, float>> TimeGramModel::mostSimilar(
@@ -687,6 +682,54 @@ pair<float, float> TimeGramModel::predictSentTime(const std::vector<std::string>
 		}
 	}*/
 	return make_pair(unnormalizedTimePoint(maxP), maxLL);
+}
+
+vector<TimeGramModel::EvalResult> TimeGramModel::evaluate(const function<ReadResult(size_t)>& reader,
+	const function<void(EvalResult)>& writer,
+	size_t numWorkers, size_t windowLen, size_t nsQ, size_t initStep) const
+{
+	if (!numWorkers) numWorkers = thread::hardware_concurrency();
+	vector<EvalResult> ret;
+	ThreadPool workers{ numWorkers };
+	map<size_t, EvalResult> res;
+	size_t outputId = 0;
+	mutex readMtx, writeMtx;
+	condition_variable readCnd;
+	size_t id = 0;
+	auto consume = [&]()
+	{
+		lock_guard<mutex> l{ writeMtx };
+		while (!res.empty() && res.begin()->first == outputId)
+		{
+			if (writer) writer(move(res.begin()->second));
+			else ret.emplace_back(move(res.begin()->second));
+			res.erase(res.begin());
+			outputId++;
+		}
+	};
+
+	for (;; ++id)
+	{
+		auto r = reader(id);
+		if (r.stop) break;
+		unique_lock<mutex> l{ readMtx };
+		readCnd.wait(l, [&]() { return workers.getNumEnqued() < workers.getNumWorkers() * 4; });
+		consume();
+		workers.enqueue([&, id](size_t tid, float time, vector<string> words)
+		{
+			auto p = predictSentTime(words, windowLen, nsQ, initStep);
+			lock_guard<mutex> l{ writeMtx };
+			res[id] = { time, p.first, p.second, p.second / 2 / windowLen / words.size(), (p.first - time) * zSlope };
+			readCnd.notify_all();
+		}, r.timePoint, move(r.words));
+	}
+	while (outputId < id)
+	{
+		unique_lock<mutex> l{ readMtx };
+		readCnd.wait(l, [&]() { return !res.empty() || outputId >= id; });
+		consume();
+	}
+	return ret;
 }
 
 MatrixXf TimeGramModel::getEmbedding(const string & word) const

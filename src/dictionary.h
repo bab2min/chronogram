@@ -11,7 +11,7 @@ class WordDictionary
 protected:
 	std::map<KeyType, ValueType> word2id;
 	std::vector<KeyType> id2word;
-	std::mutex mtx;
+	//std::mutex mtx;
 public:
 
 	WordDictionary() {}
@@ -47,7 +47,7 @@ public:
 	template<class Iter>
 	std::vector<ValueType> getOrAdds(Iter begin, Iter end)
 	{
-		std::lock_guard<std::mutex> lg(mtx);
+		//std::lock_guard<std::mutex> lg(mtx);
 		std::vector<ValueType> ret;
 		for (; begin != end; ++begin)
 		{
@@ -70,14 +70,6 @@ public:
 		}
 		return ret;
 	}
-
-	template<class Func>
-	void withLock(const Func& f)
-	{
-		std::lock_guard<std::mutex> lg(mtx);
-		f();
-	}
-
 
 	ValueType get(const KeyType& str) const
 	{
