@@ -437,7 +437,7 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 				doc.emplace_back(id);
 			}
 
-			if (doc.size() < 3)
+			if (doc.size() < 2)
 			{
 				procWords += doc.size();
 				continue;

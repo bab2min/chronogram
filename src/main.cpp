@@ -14,6 +14,7 @@
 #include <iterator>
 #include <fstream>
 #include <random>
+#include <thread>
 
 #include "cxxopts.hpp"
 #include "TimeGramModel.h"
@@ -127,7 +128,7 @@ int main(int argc, char* argv[])
 	}
 
 	cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
-	cout << "Workers: " << args.worker << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
+	cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
 	cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << endl;
 	TimeGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative, args.eta };
 	if (!args.load.empty())
