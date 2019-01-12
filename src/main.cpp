@@ -23,7 +23,7 @@ using namespace std;
 
 struct Args
 {
-	string load, save, eval, result;
+	string load, save, eval, result, fixed;
 	vector<string> input;
 	int worker = 0, window = 4, dimension = 100;
 	int order = 5, epoch = 1, negative = 5;
@@ -74,6 +74,8 @@ struct MultipleReader
 	}
 };
 
+
+
 int main(int argc, char* argv[])
 {
 	Args args;
@@ -90,6 +92,7 @@ int main(int argc, char* argv[])
 			("v,save", "Save Model File", cxxopts::value<string>(), "Model file path to be saved")
 			("eval", "Evaluation set File", cxxopts::value<string>(), "Evaluation set file path")
 			("result", "Evaluation Result File", cxxopts::value<string>(), "Evaluation result file path")
+			("f,fixed", "Fixed Word List File", cxxopts::value<string>())
 			("h,help", "Help")
 			("version", "Version")
 
@@ -132,6 +135,7 @@ int main(int argc, char* argv[])
 			READ_OPT(save, string);
 			READ_OPT(eval, string);
 			READ_OPT(result, string);
+			READ_OPT(fixed, string);
 
 			if (result.count("input")) args.input.emplace_back(result["input"].as<string>());
 			for (size_t i = 1; i < argc; ++i)
@@ -195,6 +199,18 @@ int main(int argc, char* argv[])
 		MultipleReader reader{ args.input };
 		tgm.buildVocab(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.minCnt);
 		cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size() << endl;
+		if(!args.fixed.empty())
+		{
+			ifstream ifs{ args.fixed };
+			string line;
+			size_t numFixedWords = 0;
+			while (getline(ifs, line))
+			{
+				while (!line.empty() && isspace(line.back())) line.pop_back();
+				if (tgm.addFixedWord(line)) numFixedWords++;
+			}
+			cout << numFixedWords << " fixed words are loaded." << endl;
+		}
 		tgm.train(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.worker, args.window, .025f, args.batch,
 			args.epoch, args.zeta, args.report);
 
@@ -241,7 +257,7 @@ int main(int argc, char* argv[])
 	string line;
 	while (cout << ">> ", getline(cin, line))
 	{
-		if (line[0] == '~') // calculate avg similarity per period
+		if (line[0] == '~') // calculate arc length
 		{
 			if (line[1] == '~') // find shortest arc length
 			{
@@ -299,7 +315,7 @@ int main(int argc, char* argv[])
 					tgm.getWordProbByTime(words[0], tgm.unnormalizedTimePoint(z)) << endl;
 			}
 		}
-		else if (line[0] == '#') // estimate time of word
+		else if (line[0] == '#') // get embedding
 		{
 			stringstream iss{ line.substr(1) };
 			istream_iterator<string> wBegin{ iss }, wEnd{};
@@ -316,6 +332,48 @@ int main(int argc, char* argv[])
 					}
 					cout << endl;
 				}
+			}
+		}
+		else if (line[0] == '$') // similarity between two word
+		{
+			vector<pair<string, float>> words;
+			pair<string, float>* lastInput = nullptr;
+			istringstream iss{ line.substr(1) };
+			istream_iterator<string> wBegin{ iss }, wEnd{};
+			for (; wBegin != wEnd; ++wBegin)
+			{
+				auto word = *wBegin;
+				if (word[0] == '@')
+				{
+					float t = stof(word.substr(1));
+					if (t < tgm.getMinPoint() || t > tgm.getMaxPoint())
+					{
+						cout << "Out of time range [" << tgm.getMinPoint() << ", " << tgm.getMaxPoint() << "]" << endl;
+					}
+
+					if (lastInput)
+					{
+						lastInput->second = t;
+						lastInput = nullptr;
+					}
+				}
+				else
+				{
+					words.emplace_back(word, tgm.getMinPoint());
+					lastInput = &words.back();
+				}
+			}
+			if (words.size() < 2)
+			{
+				cout << "Input two words!!" << endl;
+			}
+			else
+			{
+				cout << "Similarity Between '" << words[0].first << "' @" << words[0].second
+					<< " and '" << words[1].first << "' @" << words[1].second
+					<< " : " << tgm.similarity(words[0].first, words[0].second, words[1].first, words[1].second) << endl;
+				cout << "Overall Similarity Between '" << words[0].first << "' and " << words[1].first
+					<< "' : " << tgm.similarity(words[0].first,words[1].first) << endl;
 			}
 		}
 		else // find most similar word

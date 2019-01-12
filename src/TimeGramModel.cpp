@@ -76,9 +76,16 @@ float TimeGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative, 
 	VectorXf out_grad = g * inSum;
 	outcol += out_grad;
 
-	for (size_t l = 0; l < L; ++l)
+	if (fixedWords.count(x))
 	{
-		in.col(x * L + l) += lWeight[l] * in_grad * (l ? eta : 1.f);
+		in.col(x * L) += in_grad;
+	}
+	else
+	{
+		for (size_t l = 0; l < L; ++l)
+		{
+			in.col(x * L + l) += lWeight[l] * in_grad * (l ? eta : 1.f);
+		}
 	}
 	return pr;
 }
@@ -98,7 +105,6 @@ float TimeGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool negati
 	yGrad += g * inSum;
 	return max(pr, -100.f);
 }
-
 
 
 void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
@@ -152,7 +158,7 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 		
 		wordProcd[x]++;
 
-		if (zeta > 0)
+		if (zeta > 0 && !fixedWords.count(x))
 		{
 			auto g = makeTimedVector(x, avgNegCoef) * -lr1 * zeta;
 			for (size_t l = 0; l < L; ++l)
@@ -249,16 +255,24 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 			wordProcd[x]++;
 
 			// deferred update
-			for (size_t l = 0; l < L; ++l)
+			if (fixedWords.count(x))
 			{
-				in.col(x * L + l) += coef[l] * updateIn.col(0) * (l ? eta : 1.f);
+				in.col(x * L) += updateIn.col(0);
 			}
+			else
+			{
+				for (size_t l = 0; l < L; ++l)
+				{
+					in.col(x * L + l) += coef[l] * updateIn.col(0) * (l ? eta : 1.f);
+				}
+			}
+
 			for (auto& p : ld.updateOutIdx)
 			{
 				out.col(p.first) += ld.updateOutMat.col(p.second);
 			}
 
-			if (zeta > 0)
+			if (zeta > 0 && !fixedWords.count(x))
 			{
 				auto g = makeTimedVector(x, avgNegCoef) * -lr1 * zeta;
 				for (size_t l = 0; l < L; ++l)
@@ -375,6 +389,15 @@ void TimeGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, 
 		vocabs.add(vc.rdict.getStr(i));
 	}
 	buildModel();
+}
+
+bool TimeGramModel::addFixedWord(const std::string & word)
+{
+	size_t wv = vocabs.get(word);
+	if (wv == (size_t)-1) return false;
+	fixedWords.emplace(wv);
+	in.block(0, wv * L + 1, M, L - 1).setZero();
+	return true;
 }
 
 void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
@@ -587,6 +610,21 @@ vector<tuple<string, float>> TimeGramModel::mostSimilar(
 		sim.data()[idx] = -INFINITY;
 	}
 	return top;
+}
+
+float TimeGramModel::similarity(const std::string & word1, float time1, const std::string & word2, float time2) const
+{
+	size_t wv1 = vocabs.get(word1), wv2 = vocabs.get(word2);
+	if (wv1 == (size_t)-1 || wv2 == (size_t)-1) return 0;
+	VectorXf c1 = makeCoef(L, normalizedTimePoint(time1)), c2 = makeCoef(L, normalizedTimePoint(time2));
+	return makeTimedVector(wv1, c1).normalized().dot(makeTimedVector(wv2, c2).normalized());
+}
+
+float TimeGramModel::similarity(const std::string & word1, const std::string & word2) const
+{
+	size_t wv1 = vocabs.get(word1), wv2 = vocabs.get(word2);
+	if (wv1 == (size_t)-1 || wv2 == (size_t)-1) return 0;
+	return out.col(wv1).normalized().dot(out.col(wv2).normalized());
 }
 
 

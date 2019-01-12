@@ -105,6 +105,7 @@ private:
 
 	std::vector<size_t> frequencies; // (V)
 	std::vector<size_t> wordProcd;
+	std::unordered_set<uint32_t> fixedWords;
 	Eigen::MatrixXf in; // (M, L * V)
 	Eigen::MatrixXf out; // (M, V)
 	Eigen::MatrixXf wordDist; // (L, V)
@@ -185,6 +186,7 @@ public:
 	}
 
 	void buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt = 10);
+	bool addFixedWord(const std::string& word);
 	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
 		size_t window_length = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, float zeta = 0.125f, size_t report = 10000);
 
@@ -199,6 +201,8 @@ public:
 		const std::vector<std::string>& positiveWords,
 		const std::vector<std::string>& negativeWords,
 		size_t K = 10) const;
+	float similarity(const std::string& word1, float time1, const std::string& word2, float time2) const;
+	float similarity(const std::string& word1, const std::string& word2) const;
 
 	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen, size_t nsQ = 16) const;
 	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, size_t windowLen, size_t nsQ = 16, size_t initStep = 24) const;
