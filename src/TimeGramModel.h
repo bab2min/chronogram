@@ -7,6 +7,7 @@
 #include <atomic>
 #include <Eigen/Dense>
 #include "dictionary.h"
+#include "mathUtils.h"
 #include "Timer.h"
 
 struct VocabCounter
@@ -35,12 +36,6 @@ struct VocabCounter
 class TimeGramModel
 {
 public:
-	enum class Mode
-	{
-		hierarchicalSoftmax,
-		negativeSampling
-	};
-
 	struct ReadResult
 	{
 		std::vector<std::string> words;
@@ -51,7 +46,7 @@ public:
 	class LLEvaluater
 	{
 		friend class TimeGramModel;
-		size_t L, negativeSampleSize, windowLen, nsQ;
+		size_t windowLen, nsQ;
 		std::vector<uint32_t> wordIds;
 		struct MixedVectorCoef
 		{
@@ -69,21 +64,17 @@ public:
 		};
 
 		std::unordered_map<uint32_t, MixedVectorCoef> coefs;
-		const std::vector<float>& unigramDist;
-
-		LLEvaluater(size_t _L, size_t _negativeSampleSize, size_t _windowLen,
+		const TimeGramModel& tgm;
+		LLEvaluater(const TimeGramModel& _tgm, size_t _windowLen,
 			size_t _nsQ, std::vector<uint32_t>&& _wordIds, 
-			std::unordered_map<uint32_t, MixedVectorCoef>&& _coefs,
-			const std::vector<float>& _unigramDist)
-			: L(_L), negativeSampleSize(_negativeSampleSize),
-			windowLen(_windowLen), nsQ(_nsQ),
-			wordIds(_wordIds), coefs(_coefs), unigramDist(_unigramDist)
+			std::unordered_map<uint32_t, MixedVectorCoef>&& _coefs)
+			: windowLen(_windowLen), nsQ(_nsQ),
+			wordIds(_wordIds), coefs(_coefs), tgm(_tgm)
 		{}
 
 	public:
 		float operator()(float timePoint) const;
 		std::tuple<float, float, float> fgh(float timePoint) const;
-		std::tuple<float, float> gh(float timePoint) const;
 	};
 
 	struct EvalResult
@@ -113,8 +104,10 @@ private:
 	size_t L; // order of Lengendre polynomial
 	float subsampling;
 	float zBias = 0, zSlope = 1;
-	float eta = 1.f;
-	Mode mode;
+	float eta = 1.f, zeta = .125f, lambda = .25f;
+
+	Eigen::VectorXf avgNegCoef;
+	Eigen::MatrixXf avgNegMatrix;
 
 	size_t totalWords = 0;
 	size_t procWords = 0, lastProcWords = 0;
@@ -137,35 +130,45 @@ private:
 	static Eigen::VectorXf makeDCoef(size_t L, float z);
 	Eigen::VectorXf makeTimedVector(size_t wv, const Eigen::VectorXf& coef) const;
 
+	float avgTimeSqNorm(size_t wv) const;
+
 	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight);
 	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
+	float timeUpdate(size_t x, float lr, const Eigen::VectorXf& lWeight);
+
 	void buildModel();
 	void buildTable();
 	void trainVectors(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr, size_t nEpoch, float zeta, size_t report);
+		size_t window_length, float start_lr, size_t nEpoch, size_t report);
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr, size_t nEpoch, float zeta, size_t report, ThreadLocalData& ld);
+		size_t window_length, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld);
 	void normalizeWordDist();
 
 	float getWordProbByTime(uint32_t w, float timePoint) const;
 public:
 	TimeGramModel(size_t _M = 100, size_t _L = 6,
-		float _subsampling = 1e-4, size_t _negativeSampleSize = 5, float _eta = 1.f,
+		float _subsampling = 1e-4, size_t _negativeSampleSize = 5,
+		float _eta = 1.f, float _zeta = .125f, float _lambda = .25f,
 		size_t seed = std::random_device()())
-		: M(_M), L(_L), subsampling(_subsampling), eta(_eta),
-		mode(_negativeSampleSize ? Mode::negativeSampling : Mode::hierarchicalSoftmax),
+		: M(_M), L(_L), subsampling(_subsampling), eta(_eta), zeta(_zeta), lambda(_lambda),
 		negativeSampleSize(_negativeSampleSize)
 	{
 		globalData.rg = std::mt19937_64{ seed };
+
+		avgNegCoef = Eigen::VectorXf::Zero(L);
+		for (size_t l = 0; l < L; ++l) avgNegCoef[l] = integratedChebyshevT(l) / 2;
+		avgNegMatrix = Eigen::MatrixXf::Zero(L, L);
+		for (size_t l = 0; l < L; ++l) for (size_t m = 0; m < L; ++m) avgNegMatrix(l, m) = integratedChebyshevTT(l, m) / 2;
 	}
 
 	TimeGramModel(TimeGramModel&& o)
 		: M(o.M), L(o.L), globalData(o.globalData),
 		vocabs(std::move(o.vocabs)), frequencies(std::move(o.frequencies)), 
 		unigramTable(std::move(o.unigramTable)), unigramDist(std::move(o.unigramDist)),
-		in(std::move(o.in)), out(std::move(o.out)), zBias(o.zBias), zSlope(o.zSlope)
+		in(std::move(o.in)), out(std::move(o.out)), zBias(o.zBias), zSlope(o.zSlope),
+		avgNegCoef(std::move(o.avgNegCoef)), avgNegMatrix(std::move(o.avgNegMatrix))
 	{
 	}
 
@@ -182,13 +185,15 @@ public:
 		out = std::move(o.out);
 		zBias = o.zBias;
 		zSlope = o.zSlope;
+		avgNegCoef = std::move(o.avgNegCoef);
+		avgNegMatrix = std::move(o.avgNegMatrix);
 		return *this;
 	}
 
 	void buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt = 10);
 	bool addFixedWord(const std::string& word);
 	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
-		size_t window_length = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, float zeta = 0.125f, size_t report = 10000);
+		size_t window_length = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
 	std::vector<std::tuple<std::string, float>> nearestNeighbors(const std::string& word, 

@@ -30,7 +30,7 @@ struct Args
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
 	int nsQ = 8, initStep = 10;
-	float eta = 1.f, zeta = .125f;
+	float eta = 1.f, zeta = .125f, lambda = .25f;
 };
 
 struct MultipleReader
@@ -109,6 +109,7 @@ int main(int argc, char* argv[])
 			("initStep", "", cxxopts::value<int>())
 			("eta", "", cxxopts::value<float>())
 			("z,zeta", "", cxxopts::value<float>())
+			("lambda", "", cxxopts::value<float>())
 			;
 
 		try
@@ -156,6 +157,7 @@ int main(int argc, char* argv[])
 
 			READ_OPT(eta, float);
 			READ_OPT(zeta, float);
+			READ_OPT(lambda, float);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -178,8 +180,9 @@ int main(int argc, char* argv[])
 
 	cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 	cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
-	cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << endl;
-	TimeGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative, args.eta };
+	cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << "\tLambda: " << args.lambda << endl;
+	TimeGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative,
+		args.eta, args.zeta, args.lambda };
 	if (!args.load.empty())
 	{
 		cout << "Loading Model: " << args.load << endl;
@@ -212,7 +215,7 @@ int main(int argc, char* argv[])
 			cout << numFixedWords << " fixed words are loaded." << endl;
 		}
 		tgm.train(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.worker, args.window, .025f, args.batch,
-			args.epoch, args.zeta, args.report);
+			args.epoch, args.report);
 
 		cout << "Finished in " << timer.getElapsed() << " sec" << endl;
 		if (!args.save.empty())

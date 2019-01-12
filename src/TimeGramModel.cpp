@@ -3,7 +3,6 @@
 #include <iterator>
 #include <unordered_set>
 #include "TimeGramModel.h"
-#include "mathUtils.h"
 #include "IOUtils.h"
 #include "ThreadPool.h"
 #include "polynomials.hpp"
@@ -54,12 +53,21 @@ VectorXf TimeGramModel::makeDCoef(size_t L, float z)
 
 VectorXf TimeGramModel::makeTimedVector(size_t wv, const VectorXf& coef) const
 {
-	/*VectorXf vec = VectorXf::Zero(M);
+	return in.block(0, wv * L, M, L) * coef;
+}
+
+float TimeGramModel::avgTimeSqNorm(size_t wv) const
+{
+	float ret = 0;
 	for (size_t l = 0; l < L; ++l)
 	{
-		vec += coef[l] * in.col(wv * L + l);
-	}*/
-	return in.block(0, wv * L, M, L) * coef;
+		ret += in.col(wv * L + l).squaredNorm() * integratedSqChebyshevT(l);
+		for (size_t m = 0; m < l; ++m)
+		{
+			ret += 2 * in.col(wv * L + l).dot(in.col(wv * L + m)) * integratedChebyshevTT(l, m);
+		}
+	}
+	return ret;
 }
 
 float TimeGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative, const VectorXf& lWeight)
@@ -106,18 +114,36 @@ float TimeGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool negati
 	return max(pr, -100.f);
 }
 
+float TimeGramModel::timeUpdate(size_t x, float lr, const VectorXf& lWeight)
+{
+	/*
+	log P(x|t) = log(1 - exp(-x^2/2 * l))
+	d log P(x|t) / dx = lx / (exp(x^2/2 * l) - 1)
+
+	log (1-P(x|t)) = log(exp(-x^2/2 * l)) = -x^2/2 * l
+	d log (1-P(x|t)) / dx = -x * l
+	*/
+	auto gPos = makeTimedVector(x, lWeight);
+	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda));
+	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-3;
+	/*if (!isfinite(gPos[0]))
+	{
+		cerr << gPos << endl;
+		gPos = makeTimedVector(x, lWeight);
+		cerr << gPos << endl;
+	}*/
+	in.block(0, x * L, M, L) += gPos * lWeight.transpose() * lambda * lr;
+	pr += -avgTimeSqNorm(x) * lambda;
+	in.block(0, x * L, M, L) += -in.block(0, x * L, M, L) * avgNegMatrix * lambda * lr;
+	return pr;
+}
+
 
 void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
-	size_t window_length, float start_lr, size_t nEpoch, float zeta, size_t report)
+	size_t window_length, float start_lr, size_t nEpoch, size_t report)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
-
-	VectorXf avgNegCoef = VectorXf::Zero(L);
-	for (size_t l = 0; l < L; ++l)
-	{
-		avgNegCoef[l] = l % 2 ? 0.f : (1.f / (1.f - l * l));
-	}
 
 	for (size_t i = 0; i < N; ++i)
 	{
@@ -127,21 +153,23 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 		if (i > window_length) jBegin = i - window_length;
 		if (i + window_length < N) jEnd = i + window_length;
 
+		float llSum = 0;
+		size_t llCnt = 0;
 		// update in, out vector
 		for (auto j = jBegin; j < jEnd; ++j)
 		{
 			if (i == j) continue;
-			float ll = inplaceUpdate(x, ws[j], lr1, false, coef);
+			float ll = inplaceUpdate(x, ws[j], lr1 * (1 - zeta), false, coef);
 			assert(isnormal(ll));
 			for (size_t k = 0; k < negativeSampleSize; ++k)
 			{
 				uint32_t ns = unigramTable(globalData.rg);
 				while (ns == ws[j]) ns = unigramTable(globalData.rg);
-				ll += inplaceUpdate(x, ns, lr1, true, coef);
+				ll += inplaceUpdate(x, ns, lr1 * (1 - zeta), true, coef);
 				assert(isnormal(ll));
 			}
-			totalLLCnt++;
-			totalLL += (ll - totalLL) / totalLLCnt;
+			llCnt++;
+			llSum += ll * (1 - zeta);
 		}
 
 		procWords += 1;
@@ -160,12 +188,11 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 
 		if (zeta > 0 && !fixedWords.count(x))
 		{
-			auto g = makeTimedVector(x, avgNegCoef) * -lr1 * zeta;
-			for (size_t l = 0; l < L; ++l)
-			{
-				in.col(x * L + l) += g * avgNegCoef[l];
-			}
+			llSum += timeUpdate(x, lr1 * zeta, coef);
 		}
+
+		totalLLCnt += llCnt;
+		totalLL += (llSum - llCnt * totalLL) / totalLLCnt;
 
 		if (report && procWords % report == 0)
 		{
@@ -181,17 +208,11 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 	}
 }
 
-
 void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timePoint,
-	size_t window_length, float start_lr, size_t nEpoch, float zeta, size_t report, ThreadLocalData& ld)
+	size_t window_length, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld)
 {
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
-	VectorXf avgNegCoef = VectorXf::Zero(L);
-	for (size_t l = 0; l < L; ++l)
-	{
-		avgNegCoef[l] = l % 2 ? 0.f : (1.f / (1.f - l * l));
-	}
 
 	float llSum = 0;
 	size_t llCnt = 0;
@@ -215,7 +236,7 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 			if (ld.updateOutIdx.find(ws[j]) == ld.updateOutIdx.end())
 				ld.updateOutIdx.emplace(ws[j], ld.updateOutIdx.size());
 
-			float ll = getUpdateGradient(x, ws[j], lr1, false, coef,
+			float ll = getUpdateGradient(x, ws[j], lr1 * (1 - zeta), false, coef,
 				updateIn.col(0),
 				ld.updateOutMat.col(ld.updateOutIdx[ws[j]]));
 			assert(isnormal(ll));
@@ -226,13 +247,13 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 				if (ld.updateOutIdx.find(ns) == ld.updateOutIdx.end())
 					ld.updateOutIdx.emplace(ns, ld.updateOutIdx.size());
 
-				ll += getUpdateGradient(x, ns, lr1, true, coef,
+				ll += getUpdateGradient(x, ns, lr1 * (1 - zeta), true, coef,
 					updateIn.col(0),
 					ld.updateOutMat.col(ld.updateOutIdx[ns]));
 				assert(isnormal(ll));
 			}
 			llCnt++;
-			llSum += ll;
+			llSum += ll * (1 - zeta);
 		}
 
 		{
@@ -274,11 +295,7 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 
 			if (zeta > 0 && !fixedWords.count(x))
 			{
-				auto g = makeTimedVector(x, avgNegCoef) * -lr1 * zeta;
-				for (size_t l = 0; l < L; ++l)
-				{
-					in.col(x * L + l) += g * avgNegCoef[l];
-				}
+				llSum += timeUpdate(x, lr1 * zeta, coef) * zeta;
 			}
 			
 		}
@@ -320,7 +337,8 @@ void TimeGramModel::normalizeWordDist()
 
 float TimeGramModel::getWordProbByTime(uint32_t w, float timePoint) const
 {
-	return wordDist.col(w).dot(makeCoef(L, normalizedTimePoint(timePoint)));
+	//return wordDist.col(w).dot(makeCoef(L, normalizedTimePoint(timePoint)));
+	return 1 - exp(-makeTimedVector(w, makeCoef(L, normalizedTimePoint(timePoint))).squaredNorm() / 2 * lambda);
 }
 
 
@@ -402,7 +420,7 @@ bool TimeGramModel::addFixedWord(const std::string & word)
 
 void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 	size_t numWorkers, size_t window_length, float start_lr, size_t batch,
-	size_t epoch, float zeta, size_t report)
+	size_t epoch, size_t report)
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
 	ThreadPool workers{ numWorkers };
@@ -439,7 +457,7 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 				futures.emplace_back(workers.enqueue([&](size_t threadId)
 				{
 					trainVectorsMulti(d.first.data(), d.first.size(), d.second,
-						window_length, start_lr, epoch, zeta, report, ld[threadId]);
+						window_length, start_lr, epoch, report, ld[threadId]);
 				}));
 			}
 			for (auto& f : futures) f.get();
@@ -449,7 +467,7 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 			for (auto& d : collections)
 			{
 				trainVectors(d.first.data(), d.first.size(), d.second,
-					window_length, start_lr, epoch, zeta, report);
+					window_length, start_lr, epoch, report);
 			}
 		}
 		collections.clear();
@@ -659,7 +677,7 @@ TimeGramModel::LLEvaluater TimeGramModel::evaluateSent(const std::vector<std::st
 		if (nsQ) n = (n + 1) % nsQ;
 	}
 
-	return LLEvaluater(L, negativeSampleSize, windowLen, nsQ, move(wordIds), move(coefs), unigramDist);
+	return LLEvaluater(*this, windowLen, nsQ, move(wordIds), move(coefs));
 }
 
 template<class _XType, class _LLType, class _Func1, class _Func2>
@@ -686,7 +704,12 @@ pair<_XType, _LLType> findMaximum(_XType s, _XType e, _XType threshold,
 	{
 		delta *= gamma;
 		auto p = funcAll(max(min(x + delta, e), s));
-		ll = get<0>(p);
+		auto newll = get<0>(p);
+		/*if (newll < ll)
+		{
+			cerr << newll << "\t" << ll << endl;
+		}*/
+		ll = newll;
 		auto& dll = get<1>(p);
 		auto& ddll = get<2>(p);
 		delta += eta * dll / (abs(ddll) + mu);
@@ -703,22 +726,11 @@ pair<float, float> TimeGramModel::predictSentTime(const std::vector<std::string>
 	auto evaluator = evaluateSent(words, windowLen, nsQ);
 	float maxLL = -INFINITY, maxP = 0;
 	auto t = findMaximum(0.f, 1.f, 1e-4f,
-		initStep, 10,
+		initStep, 0,
 		0.2f, 0.8f, 10.f,
 		[&](auto x) { return evaluator(x); },
 		[&](auto x) { return evaluator.fgh(x); });
 	maxLL = t.second, maxP = t.first;
-	/*constexpr size_t SLICE = 32;
-	for (size_t i = 0; i <= SLICE; ++i)
-	{
-		auto ll = evaluator(i / (float)SLICE);
-		if (ll > maxLL)
-		{
-			if(fmod(maxP * SLICE, 1)) cout << maxP << '\t' << maxLL << " --> " << i / (float)SLICE << '\t' << ll << endl;
-			maxLL = ll;
-			maxP = i / (float)SLICE;
-		}
-	}*/
 	return make_pair(unnormalizedTimePoint(maxP), maxLL);
 }
 
@@ -817,8 +829,8 @@ float TimeGramModel::getWordProbByTime(const std::string & word, float timePoint
 
 float TimeGramModel::LLEvaluater::operator()(float timePoint) const
 {
-	const size_t N = wordIds.size(), V = unigramDist.size();
-	auto tCoef = makeCoef(L, timePoint);
+	const size_t N = wordIds.size(), V = tgm.unigramDist.size();
+	auto tCoef = makeCoef(tgm.L, timePoint);
 	float ll = 0;
 	unordered_map<uint32_t, uint32_t> count;
 
@@ -836,10 +848,12 @@ float TimeGramModel::LLEvaluater::operator()(float timePoint) const
 			if (i == j) continue;
 			const uint32_t y = wordIds[j];
 			if (y == (uint32_t)-1) continue;
-			float d = inner_product(tCoef.data(), tCoef.data() + L, cx.get(y, nsQ, L), 0.f);
-			ll += logsigmoid(d);
+			float d = inner_product(tCoef.data(), tCoef.data() + tgm.L, cx.get(y, nsQ, tgm.L), 0.f);
+			ll += logsigmoid(d) * (1 - tgm.zeta);
 			count[x]++;
 		}
+
+		ll += log(1 - exp(-tgm.makeTimedVector(x, tCoef).squaredNorm() / 2 * tgm.lambda)) * tgm.zeta;
 	}
 
 	if (nsQ)
@@ -851,11 +865,11 @@ float TimeGramModel::LLEvaluater::operator()(float timePoint) const
 			float denom = 0;
 			for (size_t j = cx.n; j < V; j += nsQ)
 			{
-				float d = inner_product(tCoef.data(), tCoef.data() + L, cx.get(j, nsQ, L), 0.f);
-				nll += unigramDist[j] * logsigmoid(-d);
-				denom += unigramDist[j];
+				float d = inner_product(tCoef.data(), tCoef.data() + tgm.L, cx.get(j, nsQ, tgm.L), 0.f);
+				nll += tgm.unigramDist[j] * logsigmoid(-d);
+				denom += tgm.unigramDist[j];
 			}
-			ll += nll / denom * negativeSampleSize * p.second;
+			ll += nll / denom * tgm.negativeSampleSize * p.second * (1 - tgm.zeta);
 		}
 	}
 	return ll;
@@ -863,10 +877,10 @@ float TimeGramModel::LLEvaluater::operator()(float timePoint) const
 
 tuple<float, float, float> TimeGramModel::LLEvaluater::fgh(float timePoint) const
 {
-	const size_t N = wordIds.size(), V = unigramDist.size();
+	const size_t N = wordIds.size(), V = tgm.unigramDist.size();
 	constexpr float eps = 1 / 1024.f;
-	auto tCoef = makeCoef(L, timePoint), tDCoef = makeDCoef(L, timePoint), tDDCoef = makeDCoef(L, timePoint + eps);
-	tDDCoef = ((tDDCoef - tDCoef) / eps).segment(1, L - 2).eval();
+	auto tCoef = makeCoef(tgm.L, timePoint), tDCoef = makeDCoef(tgm.L, timePoint), tDDCoef = makeDCoef(tgm.L, timePoint + eps);
+	tDDCoef = ((tDDCoef - tDCoef) / eps).segment(1, tgm.L - 2).eval();
 
 	float ll = 0, dll = 0, ddll = 0;
 	unordered_map<uint32_t, uint32_t> count;
@@ -885,14 +899,22 @@ tuple<float, float, float> TimeGramModel::LLEvaluater::fgh(float timePoint) cons
 			if (i == j) continue;
 			const uint32_t y = wordIds[j];
 			if (y == (uint32_t)-1) continue;
-			float d = inner_product(tCoef.data(), tCoef.data() + L, cx.get(y, nsQ, L), 0.f);
-			ll += logsigmoid(d);
-			float dd = inner_product(tDCoef.data(), tDCoef.data() + L - 1, cx.get(y, nsQ, L) + 1, 0.f), sd;
-			dll += dd * (sd = sigmoid(-d));
-			float ddd = inner_product(tDDCoef.data(), tDDCoef.data() + L - 2, cx.get(y, nsQ, L) + 2, 0.f);
-			ddll += ddd * sd - pow(dd, 2) * sd * (1 - sd);
+			float d = inner_product(tCoef.data(), tCoef.data() + tgm.L, cx.get(y, nsQ, tgm.L), 0.f);
+			ll += logsigmoid(d) * (1 - tgm.zeta);
+			float dd = inner_product(tDCoef.data(), tDCoef.data() + tgm.L - 1, cx.get(y, nsQ, tgm.L) + 1, 0.f), sd;
+			dll += dd * (sd = sigmoid(-d)) * (1 - tgm.zeta);
+			float ddd = inner_product(tDDCoef.data(), tDDCoef.data() + tgm.L - 2, cx.get(y, nsQ, tgm.L) + 2, 0.f);
+			ddll += (ddd * sd - pow(dd, 2) * sd * (1 - sd)) * (1 - tgm.zeta);
 			count[x]++;
 		}
+
+		auto v = tgm.makeTimedVector(x, tCoef);
+		VectorXf dv = tgm.in.block(0, x * tgm.L + 1, tgm.M, tgm.L - 1) * tDCoef;
+		float sqn = v.squaredNorm() / 2 * tgm.lambda, sd;
+		ll += log(1 - exp(-sqn)) * tgm.zeta; 
+		dll += v.dot(dv) * tgm.lambda / (sd = exp(sqn) - 1 + 1e-3f) * tgm.zeta;
+		ddll += (tgm.lambda * (v.dot(tgm.in.block(0, x * tgm.L + 2, tgm.M, tgm.L - 2) * tDDCoef) - tgm.lambda * pow(v.dot(dv), 2) + dv.squaredNorm()) / sd
+			- pow(tgm.lambda * v.dot(dv) / sd, 2)) * tgm.zeta;
 	}
 
 	if (nsQ)
@@ -904,17 +926,17 @@ tuple<float, float, float> TimeGramModel::LLEvaluater::fgh(float timePoint) cons
 			float denom = 0;
 			for (size_t j = cx.n; j < V; j += nsQ)
 			{
-				float d = inner_product(tCoef.data(), tCoef.data() + L, cx.get(j, nsQ, L), 0.f);
-				nll += unigramDist[j] * logsigmoid(-d);
-				float dd = inner_product(tDCoef.data(), tDCoef.data() + L - 1, cx.get(j, nsQ, L) + 1, 0.f), sd;
-				dnll += -unigramDist[j] * dd * (sd = sigmoid(d));
-				float ddd = inner_product(tDDCoef.data(), tDDCoef.data() + L - 2, cx.get(j, nsQ, L) + 2, 0.f);
-				ddnll += -unigramDist[j] * (ddd * sd + pow(dd, 2) * sd * (1 - sd));
-				denom += unigramDist[j];
+				float d = inner_product(tCoef.data(), tCoef.data() + tgm.L, cx.get(j, nsQ, tgm.L), 0.f);
+				nll += tgm.unigramDist[j] * logsigmoid(-d);
+				float dd = inner_product(tDCoef.data(), tDCoef.data() + tgm.L - 1, cx.get(j, nsQ, tgm.L) + 1, 0.f), sd;
+				dnll += -tgm.unigramDist[j] * dd * (sd = sigmoid(d));
+				float ddd = inner_product(tDDCoef.data(), tDDCoef.data() + tgm.L - 2, cx.get(j, nsQ, tgm.L) + 2, 0.f);
+				ddnll += -tgm.unigramDist[j] * (ddd * sd + pow(dd, 2) * sd * (1 - sd));
+				denom += tgm.unigramDist[j];
 			}
-			ll += nll / denom * negativeSampleSize * p.second;
-			dll += dnll / denom * negativeSampleSize * p.second;
-			ddll += ddnll / denom * negativeSampleSize * p.second;
+			ll += nll / denom * tgm.negativeSampleSize * p.second * (1 - tgm.zeta);
+			dll += dnll / denom * tgm.negativeSampleSize * p.second * (1 - tgm.zeta);
+			ddll += ddnll / denom * tgm.negativeSampleSize * p.second * (1 - tgm.zeta);
 		}
 	}
 	return make_tuple(ll, dll, ddll);

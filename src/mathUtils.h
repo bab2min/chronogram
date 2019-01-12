@@ -51,3 +51,19 @@ inline float logsigmoid(float x)
 	if (x >= 0) return SimpleLUT<F_logsigmoid, 32 * 1024, 1024>::get(x);
 	return SimpleLUT<F_logsigmoid, 32 * 1024, 1024>::get(-x) + x;
 }
+
+inline float integratedChebyshevT(size_t n)
+{
+	if (n % 2) return 0;
+	return 2.f / (1.f - n * n);
+}
+
+inline float integratedSqChebyshevT(size_t n)
+{
+	return 1 - 1.f / (4 * n * n - 1.f);
+}
+
+inline float integratedChebyshevTT(size_t n, size_t m)
+{
+	return (integratedChebyshevT(n + m) + integratedChebyshevT(std::max(n, m) - std::min(n, m))) / 2;
+}
