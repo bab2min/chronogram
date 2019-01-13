@@ -15,9 +15,9 @@ void TimeGramModel::buildModel()
 	const size_t V = vocabs.size();
 	// allocate & initialize model
 	in = MatrixXf::Random(M, L * V) * (.5f / M);
-	//in = MatrixXf::Zero(M, L * V);
 	out = MatrixXf::Random(M, V) * (.5f / M);
-	wordDist = MatrixXf::Constant(L, V, 0);
+
+	//timePrior = VectorXf::Random(L);
 	buildTable();
 }
 
@@ -29,6 +29,7 @@ void TimeGramModel::buildTable()
 	unigramTable = discrete_distribution<uint32_t>(weights.begin(), weights.end());
 	auto p = unigramTable.probabilities();
 	unigramDist = vector<float>{ p.begin(), p.end() };
+	wordScale = vector<float>(vocabs.size(), 1.f);
 }
 
 VectorXf TimeGramModel::makeCoef(size_t L, float z)
@@ -70,6 +71,20 @@ float TimeGramModel::avgTimeSqNorm(size_t wv) const
 	return ret;
 }
 
+float TimeGramModel::avgTimePrior() const
+{
+	float ret = 0;
+	/*for (size_t l = 0; l < L; ++l)
+	{
+		ret += pow(timePrior[l], 2) * integratedSqChebyshevT(l);
+		for (size_t m = 0; m < l; ++m)
+		{
+			ret += 2 * timePrior[l] * timePrior[m] * integratedChebyshevTT(l, m);
+		}
+	}*/
+	return ret;
+}
+
 float TimeGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative, const VectorXf& lWeight)
 {
 	auto outcol = out.col(y);
@@ -90,10 +105,11 @@ float TimeGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative, 
 	}
 	else
 	{
-		for (size_t l = 0; l < L; ++l)
+		in.block(0, x*L, M, L) += in_grad * VectorXf{ lWeight.array() * vEta.array() }.transpose();
+		/*for (size_t l = 0; l < L; ++l)
 		{
 			in.col(x * L + l) += lWeight[l] * in_grad * (l ? eta : 1.f);
-		}
+		}*/
 	}
 	return pr;
 }
@@ -114,7 +130,7 @@ float TimeGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool negati
 	return max(pr, -100.f);
 }
 
-float TimeGramModel::timeUpdate(size_t x, float lr, const VectorXf& lWeight)
+float TimeGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWeight)
 {
 	/*
 	log P(x|t) = log(1 - exp(-x^2/2 * l))
@@ -124,20 +140,46 @@ float TimeGramModel::timeUpdate(size_t x, float lr, const VectorXf& lWeight)
 	d log (1-P(x|t)) / dx = -x * l
 	*/
 	auto gPos = makeTimedVector(x, lWeight);
-	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda));
+	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5);
 	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-3;
-	/*if (!isfinite(gPos[0]))
-	{
-		cerr << gPos << endl;
-		gPos = makeTimedVector(x, lWeight);
-		cerr << gPos << endl;
-	}*/
-	in.block(0, x * L, M, L) += gPos * lWeight.transpose() * lambda * lr;
 	pr += -avgTimeSqNorm(x) * lambda;
+
+	in.block(0, x * L, M, L) += gPos * lWeight.transpose() * lambda * lr;
 	in.block(0, x * L, M, L) += -in.block(0, x * L, M, L) * avgNegMatrix * lambda * lr;
 	return pr;
 }
 
+float TimeGramModel::getTimeUpdateGradient(size_t x, float lr, const Eigen::VectorXf & lWeight, Eigen::Block<Eigen::MatrixXf> grad)
+{
+	/*
+	log P(x|t) = log(1 - exp(-x^2/2 * l))
+	d log P(x|t) / dx = lx / (exp(x^2/2 * l) - 1)
+
+	log (1-P(x|t)) = log(exp(-x^2/2 * l)) = -x^2/2 * l
+	d log (1-P(x|t)) / dx = -x * l
+	*/
+	auto gPos = makeTimedVector(x, lWeight);
+	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5);
+	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-3;
+	pr += -avgTimeSqNorm(x) * lambda;
+
+	grad += gPos * lWeight.transpose() * lambda * lr;
+	grad += -in.block(0, x * L, M, L) * avgNegMatrix * lambda * lr;
+	return pr;
+}
+
+/*
+float TimeGramModel::updateTimePrior(float lr, const Eigen::VectorXf & lWeight)
+{
+	float p = timePrior.dot(lWeight);
+	float pr = log(1 - exp(-p * p / 2) + 1e-5);
+	p /= exp(p * p / 2) - 1 + 1e-3;
+	pr += -avgTimePrior();
+	timePrior += p * lWeight * lr;
+	timePrior -= avgNegMatrix * timePrior * lr;
+	return pr;
+}
+*/
 
 void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 	size_t window_length, float start_lr, size_t nEpoch, size_t report)
@@ -174,21 +216,10 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 
 		procWords += 1;
 
-
-		// estimating density of the word x
-		/*float densityErr;
-		float lr2 = max(start_lr * (1 - wordProcd[x] / (frequencies[x] * nEpoch + 1.f)), start_lr * 1e-4f);
-		wordDist.col(x) += (densityErr = 1 - coef.dot(wordDist.col(x))) * lr2 * coef;
-		avgWordDistErr += pow(densityErr, 2);
-		auto negCoef = makeCoef(L, generate_canonical<float, 24>(globalData.rg));
-		wordDist.col(x) += (densityErr = 0 - negCoef.dot(wordDist.col(x))) * lr2 * negCoef;
-		avgWordDistErr += pow(densityErr, 2);*/
-		
-		wordProcd[x]++;
-
 		if (zeta > 0 && !fixedWords.count(x))
 		{
-			llSum += timeUpdate(x, lr1 * zeta, coef);
+			llSum += inplaceTimeUpdate(x, lr1 * zeta, coef);
+			//llSum += updateTimePrior(lr1 * zeta, coef);
 		}
 
 		totalLLCnt += llCnt;
@@ -197,12 +228,10 @@ void TimeGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 		if (report && procWords % report == 0)
 		{
 			float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
-			printf("%.2f%% %.4f %.4f %.4f %.2f kwords/sec\n",
+			printf("%.2f%% %.4f %.4f %.2f kwords/sec\n",
 				procWords / (totalWords / 100.f), totalLL, 
-				lr1, sqrt(avgWordDistErr / (procWords - lastProcWords)),
-				time_per_kword);
+				lr1, time_per_kword);
 			lastProcWords = procWords;
-			avgWordDistErr = 0;
 			timer.reset();
 		}
 	}
@@ -214,20 +243,22 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
 
+	float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
 	float llSum = 0;
 	size_t llCnt = 0;
 
 	ld.updateOutIdx.clear();
 	ld.updateOutMat = MatrixXf::Zero(M, negativeSampleSize * (window_length + 1) * 2);
+	MatrixXf updateIn = MatrixXf::Zero(M, 1);
+	MatrixXf updateInBlock = MatrixXf::Zero(M, L);
 	for (size_t i = 0; i < N; ++i)
 	{
 		const auto& x = ws[i];
-		float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
 
 		size_t jBegin = 0, jEnd = N;
 		if (i > window_length) jBegin = i - window_length;
 		if (i + window_length < N) jEnd = i + window_length;
-		MatrixXf updateIn = MatrixXf::Zero(M, 1);
+		updateIn.setZero();
 
 		// update in, out vector
 		for (auto j = jBegin; j < jEnd; ++j)
@@ -255,26 +286,15 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 			llCnt++;
 			llSum += ll * (1 - zeta);
 		}
+		
+		updateInBlock.setZero();
+		if (zeta > 0 && !fixedWords.count(x))
+		{
+			llSum += getTimeUpdateGradient(x, lr1 * zeta, coef, updateInBlock.block(0, 0, M, L)) * zeta;
+		}
 
 		{
 			lock_guard<mutex> lock(mtx);
-
-			// estimating density of the word x
-			/*float density;
-			float lr2 = max(start_lr * (1 - wordProcd[x] / (frequencies[x] * nEpoch + 1.f)), start_lr * 1e-4f);
-			density = coef.dot(wordDist.col(x));
-			wordDist.col(x) += (1 - density) * lr2 * coef;
-			avgWordDistErr += pow(1 - density, 2);
-			for (size_t n = 0; n < 5; ++n)
-			{
-				auto negCoef = makeCoef(L, generate_canonical<float, 24>(globalData.rg));
-				density = negCoef.dot(wordDist.col(x));
-				wordDist.col(x) += -density * lr2 * negCoef;
-				avgWordDistErr += pow(density, 2);
-			}*/
-
-			wordProcd[x]++;
-
 			// deferred update
 			if (fixedWords.count(x))
 			{
@@ -282,10 +302,17 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 			}
 			else
 			{
-				for (size_t l = 0; l < L; ++l)
+				in.block(0, x * L, M, L) += updateIn * VectorXf{ coef.array() * vEta.array() }.transpose();
+				/*for (size_t l = 0; l < L; ++l)
 				{
 					in.col(x * L + l) += coef[l] * updateIn.col(0) * (l ? eta : 1.f);
-				}
+				}*/
+			}
+
+			if (zeta > 0 && !fixedWords.count(x))
+			{
+				in.block(0, x * L, M, L) += updateInBlock;
+				//llSum += updateTimePrior(lr1 * zeta, coef) * zeta;
 			}
 
 			for (auto& p : ld.updateOutIdx)
@@ -293,11 +320,6 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 				out.col(p.first) += ld.updateOutMat.col(p.second);
 			}
 
-			if (zeta > 0 && !fixedWords.count(x))
-			{
-				llSum += timeUpdate(x, lr1 * zeta, coef) * zeta;
-			}
-			
 		}
 		ld.updateOutMat.setZero();
 		ld.updateOutIdx.clear();
@@ -310,35 +332,47 @@ void TimeGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timeP
 	if (report && (procWords - N) / report < procWords / report)
 	{
 		float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
-		fprintf(stderr, "%.2f%% %.4f %.4f %.4f %.2f kwords/sec\n",
+		fprintf(stderr, "%.2f%% %.4f %.4f %.2f kwords/sec\n",
 			procWords / (totalWords / 100.f), totalLL,
-			max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f),
-			sqrt(avgWordDistErr / (procWords - lastProcWords)),
-			time_per_kword);
+			lr1, time_per_kword);
 		lastProcWords = procWords;
-		avgWordDistErr = 0;
 		timer.reset();
 	}
 }
 
 void TimeGramModel::normalizeWordDist()
 {
-	VectorXf integrated = VectorXf::Zero(L);
-	for (size_t i = 0; i < L; ++i)
+	constexpr size_t step = 128;
+
+	vector<VectorXf> coefs;
+	for (size_t i = 0; i <= step; ++i)
 	{
-		integrated[i] = i % 2 ? 0.f : (1.f / (1.f - i * i));
+		coefs.emplace_back(makeCoef(L, i / (float)step));
 	}
-	VectorXf summed = integrated.transpose() * wordDist;
+
+	/*float p = 0;
+	for (size_t i = 0; i <= step; ++i)
+	{
+		p += 1 - exp(-pow(timePrior.dot(coefs[i]), 2) / 2);
+	}
+	p /= step + 1;
+	timePriorScale = p;*/
+
 	for (size_t v = 0; v < vocabs.size(); ++v)
 	{
-		wordDist.col(v) /= summed[v];
+		float p = 0;
+		for (size_t i = 0; i <= step; ++i)
+		{
+			p += 1 - exp(-makeTimedVector(v, coefs[i]).squaredNorm() / 2 * lambda);
+		}
+		p /= step + 1;
+		wordScale[v] = p;
 	}
 }
 
 float TimeGramModel::getWordProbByTime(uint32_t w, float timePoint) const
 {
-	//return wordDist.col(w).dot(makeCoef(L, normalizedTimePoint(timePoint)));
-	return 1 - exp(-makeTimedVector(w, makeCoef(L, normalizedTimePoint(timePoint))).squaredNorm() / 2 * lambda);
+	return (1 - exp(-makeTimedVector(w, makeCoef(L, normalizedTimePoint(timePoint))).squaredNorm() / 2 * lambda)) / wordScale[w];
 }
 
 
@@ -437,8 +471,7 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 	timer.reset();
 	totalLL = 0;
 	totalLLCnt = 0;
-	wordProcd.clear();
-	wordProcd.resize(frequencies.size());
+
 	size_t totW = accumulate(frequencies.begin(), frequencies.end(), 0);
 	procWords = lastProcWords = 0;
 	// estimate total size
@@ -491,7 +524,6 @@ void TimeGramModel::train(const function<ReadResult(size_t)>& reader,
 					generate_canonical<float, 24>(globalData.rg) > sqrt(ww) + ww)
 				{
 					procWords++;
-					wordProcd[ww]++;
 					continue;
 				}
 				doc.emplace_back(id);
@@ -817,6 +849,7 @@ TimeGramModel TimeGramModel::loadModel(istream & is)
 	readFromBinStream(is, ret.in);
 	readFromBinStream(is, ret.out);
 	ret.buildTable();
+	ret.normalizeWordDist();
 	return ret;
 }
 
@@ -825,6 +858,12 @@ float TimeGramModel::getWordProbByTime(const std::string & word, float timePoint
 	size_t wv = vocabs.get(word);
 	if (wv == (size_t)-1) return 0;
 	return getWordProbByTime(wv, timePoint);
+}
+
+float TimeGramModel::getTimePrior(float timePoint) const
+{
+	//return (1 - exp(-pow(timePrior.dot(makeCoef(L, normalizedTimePoint(timePoint))), 2) / 2)) / timePriorScale;
+	return 0;
 }
 
 float TimeGramModel::LLEvaluater::operator()(float timePoint) const

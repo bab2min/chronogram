@@ -311,11 +311,23 @@ int main(int argc, char* argv[])
 			stringstream iss{ line.substr(1) };
 			istream_iterator<string> wBegin{ iss }, wEnd{};
 			vector<string> words{ wBegin, wEnd };
-			for (size_t i = 0; i <= args.initStep; ++i)
+			if (words.empty())
 			{
-				float z = i / (float)args.initStep;
-				cout << tgm.unnormalizedTimePoint(z) << ": " << 
-					tgm.getWordProbByTime(words[0], tgm.unnormalizedTimePoint(z)) << endl;
+				for (size_t i = 0; i <= args.initStep; ++i)
+				{
+					float z = i / (float)args.initStep;
+					cout << tgm.unnormalizedTimePoint(z) << ": " <<
+						tgm.getTimePrior(tgm.unnormalizedTimePoint(z)) << endl;
+				}
+			}
+			else
+			{
+				for (size_t i = 0; i <= args.initStep; ++i)
+				{
+					float z = i / (float)args.initStep;
+					cout << tgm.unnormalizedTimePoint(z) << ": " <<
+						tgm.getWordProbByTime(words[0], tgm.unnormalizedTimePoint(z)) << endl;
+				}
 			}
 		}
 		else if (line[0] == '#') // get embedding

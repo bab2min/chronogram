@@ -95,17 +95,19 @@ private:
 	};
 
 	std::vector<size_t> frequencies; // (V)
-	std::vector<size_t> wordProcd;
+	std::vector<float> wordScale;
 	std::unordered_set<uint32_t> fixedWords;
 	Eigen::MatrixXf in; // (M, L * V)
 	Eigen::MatrixXf out; // (M, V)
-	Eigen::MatrixXf wordDist; // (L, V)
 	size_t M; // dimension of word vector
 	size_t L; // order of Lengendre polynomial
 	float subsampling;
 	float zBias = 0, zSlope = 1;
 	float eta = 1.f, zeta = .125f, lambda = .25f;
 
+	//float timePriorScale = 1;
+	//Eigen::VectorXf timePrior; // (L, 1)
+	Eigen::VectorXf vEta;
 	Eigen::VectorXf avgNegCoef;
 	Eigen::MatrixXf avgNegMatrix;
 
@@ -113,7 +115,6 @@ private:
 	size_t procWords = 0, lastProcWords = 0;
 	size_t totalLLCnt = 0;
 	double totalLL = 0;
-	double avgWordDistErr = 0;
 
 	ThreadLocalData globalData;
 	WordDictionary<> vocabs;
@@ -131,12 +132,17 @@ private:
 	Eigen::VectorXf makeTimedVector(size_t wv, const Eigen::VectorXf& coef) const;
 
 	float avgTimeSqNorm(size_t wv) const;
+	float avgTimePrior() const;
 
 	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight);
 	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
-	float timeUpdate(size_t x, float lr, const Eigen::VectorXf& lWeight);
+	float inplaceTimeUpdate(size_t x, float lr, const Eigen::VectorXf& lWeight);
+	float getTimeUpdateGradient(size_t x, float lr, const Eigen::VectorXf& lWeight,
+		Eigen::Block<Eigen::MatrixXf> grad);
+
+	float updateTimePrior(float lr, const Eigen::VectorXf& lWeight);
 
 	void buildModel();
 	void buildTable();
@@ -153,10 +159,12 @@ public:
 		float _eta = 1.f, float _zeta = .125f, float _lambda = .25f,
 		size_t seed = std::random_device()())
 		: M(_M), L(_L), subsampling(_subsampling), eta(_eta), zeta(_zeta), lambda(_lambda),
+		vEta(Eigen::VectorXf::Constant(_L, _eta)),
 		negativeSampleSize(_negativeSampleSize)
 	{
 		globalData.rg = std::mt19937_64{ seed };
 
+		vEta[0] = 1;
 		avgNegCoef = Eigen::VectorXf::Zero(L);
 		for (size_t l = 0; l < L; ++l) avgNegCoef[l] = integratedChebyshevT(l) / 2;
 		avgNegMatrix = Eigen::MatrixXf::Zero(L, L);
@@ -168,7 +176,8 @@ public:
 		vocabs(std::move(o.vocabs)), frequencies(std::move(o.frequencies)), 
 		unigramTable(std::move(o.unigramTable)), unigramDist(std::move(o.unigramDist)),
 		in(std::move(o.in)), out(std::move(o.out)), zBias(o.zBias), zSlope(o.zSlope),
-		avgNegCoef(std::move(o.avgNegCoef)), avgNegMatrix(std::move(o.avgNegMatrix))
+		avgNegCoef(std::move(o.avgNegCoef)), avgNegMatrix(std::move(o.avgNegMatrix)),
+		vEta(std::move(o.vEta))
 	{
 	}
 
@@ -187,6 +196,7 @@ public:
 		zSlope = o.zSlope;
 		avgNegCoef = std::move(o.avgNegCoef);
 		avgNegMatrix = std::move(o.avgNegMatrix);
+		vEta = std::move(o.vEta);
 		return *this;
 	}
 
@@ -233,5 +243,6 @@ public:
 	float unnormalizedTimePoint(float t) const { return t / zSlope + zBias; }
 
 	float getWordProbByTime(const std::string& word, float timePoint) const;
+	float getTimePrior(float timePoint) const;
 };
 
