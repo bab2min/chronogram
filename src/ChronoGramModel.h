@@ -105,16 +105,17 @@ private:
 	float zBias = 0, zSlope = 1;
 	float eta = 1.f, zeta = .125f, lambda = .25f;
 
-	//float timePriorScale = 1;
-	//Eigen::VectorXf timePrior; // (L, 1)
+	float timePadding = 0;
+	float timePriorScale = 1;
+	Eigen::VectorXf timePrior; // (L, 1)
 	Eigen::VectorXf vEta;
 	Eigen::VectorXf avgNegCoef;
 	Eigen::MatrixXf avgNegMatrix;
 
-	size_t totalWords = 0;
-	size_t procWords = 0, lastProcWords = 0;
-	size_t totalLLCnt = 0;
-	double totalLL = 0;
+	size_t totalWords = 0, totalTimePoints = 0;
+	size_t procWords = 0, lastProcWords = 0, procTimePoints = 0;
+	size_t totalLLCnt = 0, timeLLCnt = 0;
+	double totalLL = 0, timeLL = 0;
 
 	ThreadLocalData globalData;
 	WordDictionary<> vocabs;
@@ -150,8 +151,11 @@ private:
 		size_t window_length, float start_lr, size_t nEpoch, size_t report);
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
 		size_t window_length, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld);
+	void trainTimePrior(const float* ts, size_t N, float lr, size_t report);
 	void normalizeWordDist();
 
+	float getTimePrior(const Eigen::VectorXf& coef) const;
+	float getWordProbByTime(uint32_t w, const Eigen::VectorXf& timedVector) const;
 	float getWordProbByTime(uint32_t w, float timePoint) const;
 public:
 	ChronoGramModel(size_t _M = 100, size_t _L = 6,
@@ -169,6 +173,8 @@ public:
 		for (size_t l = 0; l < L; ++l) avgNegCoef[l] = integratedChebyshevT(l) / 2;
 		avgNegMatrix = Eigen::MatrixXf::Zero(L, L);
 		for (size_t l = 0; l < L; ++l) for (size_t m = 0; m < L; ++m) avgNegMatrix(l, m) = integratedChebyshevTT(l, m) / 2;
+
+		timePadding = .25f / L;
 	}
 
 	ChronoGramModel(ChronoGramModel&& o)
@@ -177,7 +183,8 @@ public:
 		unigramTable(std::move(o.unigramTable)), unigramDist(std::move(o.unigramDist)),
 		in(std::move(o.in)), out(std::move(o.out)), zBias(o.zBias), zSlope(o.zSlope),
 		avgNegCoef(std::move(o.avgNegCoef)), avgNegMatrix(std::move(o.avgNegMatrix)),
-		vEta(std::move(o.vEta))
+		vEta(std::move(o.vEta)), zeta(o.zeta), lambda(o.lambda),
+		timePrior(std::move(o.timePrior)), timePadding(o.timePadding)
 	{
 	}
 
@@ -197,6 +204,10 @@ public:
 		avgNegCoef = std::move(o.avgNegCoef);
 		avgNegMatrix = std::move(o.avgNegMatrix);
 		vEta = std::move(o.vEta);
+		zeta = o.zeta;
+		lambda = o.lambda;
+		timePrior = std::move(o.timePrior);
+		timePadding = o.timePadding;
 		return *this;
 	}
 
@@ -206,9 +217,9 @@ public:
 		size_t window_length = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
-	std::vector<std::tuple<std::string, float>> nearestNeighbors(const std::string& word, 
+	std::vector<std::tuple<std::string, float, float>> nearestNeighbors(const std::string& word, 
 		float wordTimePoint, float searchingTimePoint, size_t K = 10) const;
-	std::vector<std::tuple<std::string, float>> mostSimilar(
+	std::vector<std::tuple<std::string, float, float>> mostSimilar(
 		const std::vector<std::pair<std::string, float>>& positiveWords,
 		const std::vector<std::pair<std::string, float>>& negativeWords,
 		float searchingTimePoint, size_t K = 10) const;
@@ -239,10 +250,19 @@ public:
 
 	float getMinPoint() const { return zBias; }
 	float getMaxPoint() const { return zBias + 1 / zSlope; }
-	float normalizedTimePoint(float t) const { return (t - zBias) * zSlope; }
-	float unnormalizedTimePoint(float t) const { return t / zSlope + zBias; }
+	float normalizedTimePoint(float t) const { return (t - zBias) * zSlope * (1 - timePadding * 2) + timePadding; }
+	float unnormalizedTimePoint(float t) const { return (t - timePadding) / (zSlope * (1 - timePadding * 2)) + zBias; }
 
 	float getWordProbByTime(const std::string& word, float timePoint) const;
 	float getTimePrior(float timePoint) const;
+
+	size_t getL() const { return L; }
+	size_t getM() const { return M; }
+
+	float getZeta() const { return zeta; }
+	float getLambda() const { return lambda; }
+
+	void setPadding(float padding) { timePadding = padding; }
+	float getPadding() const { return timePadding; }
 };
 

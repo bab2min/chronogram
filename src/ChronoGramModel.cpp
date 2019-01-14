@@ -17,7 +17,8 @@ void ChronoGramModel::buildModel()
 	in = MatrixXf::Random(M, L * V) * (.5f / M);
 	out = MatrixXf::Random(M, V) * (.5f / M);
 
-	//timePrior = VectorXf::Random(L);
+	timePrior = VectorXf::Zero(L);
+	timePrior[0] = 1;
 	buildTable();
 }
 
@@ -74,14 +75,14 @@ float ChronoGramModel::avgTimeSqNorm(size_t wv) const
 float ChronoGramModel::avgTimePrior() const
 {
 	float ret = 0;
-	/*for (size_t l = 0; l < L; ++l)
+	for (size_t l = 0; l < L; ++l)
 	{
 		ret += pow(timePrior[l], 2) * integratedSqChebyshevT(l);
 		for (size_t m = 0; m < l; ++m)
 		{
 			ret += 2 * timePrior[l] * timePrior[m] * integratedChebyshevTT(l, m);
 		}
-	}*/
+	}
 	return ret;
 }
 
@@ -106,10 +107,6 @@ float ChronoGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative
 	else
 	{
 		in.block(0, x*L, M, L) += in_grad * VectorXf{ lWeight.array() * vEta.array() }.transpose();
-		/*for (size_t l = 0; l < L; ++l)
-		{
-			in.col(x * L + l) += lWeight[l] * in_grad * (l ? eta : 1.f);
-		}*/
 	}
 	return pr;
 }
@@ -168,7 +165,7 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const Eigen::Ve
 	return pr;
 }
 
-/*
+
 float ChronoGramModel::updateTimePrior(float lr, const Eigen::VectorXf & lWeight)
 {
 	float p = timePrior.dot(lWeight);
@@ -179,7 +176,7 @@ float ChronoGramModel::updateTimePrior(float lr, const Eigen::VectorXf & lWeight
 	timePrior -= avgNegMatrix * timePrior * lr;
 	return pr;
 }
-*/
+
 
 void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 	size_t window_length, float start_lr, size_t nEpoch, size_t report)
@@ -219,7 +216,6 @@ void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoin
 		if (zeta > 0 && !fixedWords.count(x))
 		{
 			llSum += inplaceTimeUpdate(x, lr1 * zeta, coef);
-			//llSum += updateTimePrior(lr1 * zeta, coef);
 		}
 
 		totalLLCnt += llCnt;
@@ -303,16 +299,11 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 			else
 			{
 				in.block(0, x * L, M, L) += updateIn * VectorXf{ coef.array() * vEta.array() }.transpose();
-				/*for (size_t l = 0; l < L; ++l)
-				{
-					in.col(x * L + l) += coef[l] * updateIn.col(0) * (l ? eta : 1.f);
-				}*/
 			}
 
 			if (zeta > 0 && !fixedWords.count(x))
 			{
 				in.block(0, x * L, M, L) += updateInBlock;
-				//llSum += updateTimePrior(lr1 * zeta, coef) * zeta;
 			}
 
 			for (auto& p : ld.updateOutIdx)
@@ -340,6 +331,25 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 	}
 }
 
+void ChronoGramModel::trainTimePrior(const float * ts, size_t N, float lr, size_t report)
+{
+	unordered_map<float, VectorXf> coefMap;
+	for (size_t i = 0; i < N; ++i)
+	{
+		float c_lr = max(lr * (1 - procTimePoints / (totalTimePoints + 1.f)), lr * 1e-4f);
+		auto it = coefMap.find(ts[i]);
+		if (it == coefMap.end()) it = coefMap.emplace(ts[i], makeCoef(L, normalizedTimePoint(ts[i]))).first;
+		float ll = updateTimePrior(c_lr, it->second);
+		procTimePoints++;
+		timeLLCnt++;
+		timeLL += (ll - timeLL) / timeLLCnt;
+		if (report && procTimePoints % report == 0)
+		{
+			fprintf(stderr, "timePrior LL: %.4f\n", timeLL);
+		}
+	}
+}
+
 void ChronoGramModel::normalizeWordDist()
 {
 	constexpr size_t step = 128;
@@ -347,16 +357,16 @@ void ChronoGramModel::normalizeWordDist()
 	vector<VectorXf> coefs;
 	for (size_t i = 0; i <= step; ++i)
 	{
-		coefs.emplace_back(makeCoef(L, i / (float)step));
+		coefs.emplace_back(makeCoef(L, i * (1.f - timePadding * 2) / step + timePadding));
 	}
 
-	/*float p = 0;
+	float p = 0;
 	for (size_t i = 0; i <= step; ++i)
 	{
 		p += 1 - exp(-pow(timePrior.dot(coefs[i]), 2) / 2);
 	}
 	p /= step + 1;
-	timePriorScale = p;*/
+	timePriorScale = p;
 
 	for (size_t v = 0; v < vocabs.size(); ++v)
 	{
@@ -370,9 +380,19 @@ void ChronoGramModel::normalizeWordDist()
 	}
 }
 
+float ChronoGramModel::getTimePrior(const Eigen::VectorXf & coef) const
+{
+	return (1 - exp(-pow(timePrior.dot(coef), 2) / 2)) / timePriorScale;
+}
+
+float ChronoGramModel::getWordProbByTime(uint32_t w, const Eigen::VectorXf & timedVector) const
+{
+	return (1 - exp(-timedVector.squaredNorm() / 2 * lambda)) / wordScale[w];
+}
+
 float ChronoGramModel::getWordProbByTime(uint32_t w, float timePoint) const
 {
-	return (1 - exp(-makeTimedVector(w, makeCoef(L, normalizedTimePoint(timePoint))).squaredNorm() / 2 * lambda)) / wordScale[w];
+	return getWordProbByTime(w, makeTimedVector(w, makeCoef(L, normalizedTimePoint(timePoint))));
 }
 
 
@@ -468,19 +488,29 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 		}
 	}
 	vector<pair<vector<uint32_t>, float>> collections;
+	vector<float> timePoints;
 	timer.reset();
-	totalLL = 0;
-	totalLLCnt = 0;
+	totalLL = timeLL = 0;
+	totalLLCnt = timeLLCnt = 0;
 
 	size_t totW = accumulate(frequencies.begin(), frequencies.end(), 0);
 	procWords = lastProcWords = 0;
 	// estimate total size
 	totalWords = epoch * totW;
+	procTimePoints = 0;
+	totalTimePoints = totalWords / 4;
 	size_t read = 0;
 	const auto& procCollection = [&]()
 	{
 		if (collections.empty()) return;
 		shuffle(collections.begin(), collections.end(), globalData.rg);
+		for (auto& c : collections)
+		{
+			size_t tpCnt = (c.first.size() + 2) / 4;
+			if(tpCnt) timePoints.resize(timePoints.size() + tpCnt, c.second);
+		}
+		shuffle(timePoints.begin(), timePoints.end(), globalData.rg);
+
 		if (numWorkers > 1)
 		{
 			vector<future<void>> futures;
@@ -493,6 +523,7 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 						window_length, start_lr, epoch, report, ld[threadId]);
 				}));
 			}
+			trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
 			for (auto& f : futures) f.get();
 		}
 		else
@@ -502,8 +533,10 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 				trainVectors(d.first.data(), d.first.size(), d.second,
 					window_length, start_lr, epoch, report);
 			}
+			trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
 		}
 		collections.clear();
+		timePoints.clear();
 	};
 
 	for (size_t e = 0; e < epoch; ++e)
@@ -551,27 +584,28 @@ float ChronoGramModel::arcLengthOfWord(const string & word, size_t step) const
 	size_t wv = vocabs.get(word);
 	if (wv == (size_t)-1) return {};
 	float len = 0;
-	VectorXf v = makeTimedVector(wv, makeCoef(L, 0));
+	VectorXf v = makeTimedVector(wv, makeCoef(L, timePadding));
 	for (size_t i = 0; i < step; ++i)
 	{
-		VectorXf u = makeTimedVector(wv, makeCoef(L, (float)(i + 1) / step));
+		VectorXf u = makeTimedVector(wv, makeCoef(L, (float)(i + 1) / step * (1 - timePadding * 2) + timePadding));
 		len += sqrt((v - u).squaredNorm() + pow(1.f / step, 2));
 		v.swap(u);
 	}
 	return len;
 }
 
-vector<tuple<string, float>> ChronoGramModel::nearestNeighbors(const string & word,
+vector<tuple<string, float, float>> ChronoGramModel::nearestNeighbors(const string & word,
 	float wordTimePoint, float searchingTimePoint, size_t K) const
 {
 	return mostSimilar({ make_pair(word, wordTimePoint) }, {}, searchingTimePoint, K);
 }
 
-vector<tuple<string, float>> ChronoGramModel::mostSimilar(
+vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 	const vector<pair<string, float>>& positiveWords,
 	const vector<pair<string, float>>& negativeWords,
 	float searchingTimePoint, size_t K) const
 {
+	constexpr float threshold = 0.5f;
 	VectorXf vec = VectorXf::Zero(M);
 	const size_t V = vocabs.size();
 	unordered_set<size_t> uniqs;
@@ -580,7 +614,12 @@ vector<tuple<string, float>> ChronoGramModel::mostSimilar(
 	{
 		size_t wv = vocabs.get(p.first);
 		if (wv == (size_t)-1) return {};
-		vec += makeTimedVector(wv, makeCoef(L, normalizedTimePoint(p.second)));
+		VectorXf cf = makeCoef(L, normalizedTimePoint(p.second));
+		float tPrior = getTimePrior(cf);
+		VectorXf tv = makeTimedVector(wv, cf);
+		float wPrior = getWordProbByTime(wv, tv);
+		if (wPrior / tPrior < threshold) continue;
+		vec += tv;
 		uniqs.emplace(wv);
 	}
 
@@ -588,14 +627,19 @@ vector<tuple<string, float>> ChronoGramModel::mostSimilar(
 	{
 		size_t wv = vocabs.get(p.first);
 		if (wv == (size_t)-1) return {};
-		vec -= makeTimedVector(wv, makeCoef(L, normalizedTimePoint(p.second)));
+		VectorXf cf = makeCoef(L, normalizedTimePoint(p.second));
+		float tPrior = getTimePrior(cf);
+		VectorXf tv = makeTimedVector(wv, cf);
+		float wPrior = getWordProbByTime(wv, tv);
+		if (wPrior / tPrior < threshold) continue;
+		vec -= tv;
 		uniqs.emplace(wv);
 	}
 
 	vec.normalize();
-
-	vector<tuple<string, float>> top;
-	VectorXf sim(V);
+	float tPrior = getTimePrior(coef);
+	vector<tuple<string, float, float>> top;
+	vector<pair<float, float>> sim(V);
 	for (size_t v = 0; v < V; ++v)
 	{
 		/*if (uniqs.count(v))
@@ -603,14 +647,21 @@ vector<tuple<string, float>> ChronoGramModel::mostSimilar(
 			sim(v) = -INFINITY;
 			continue;
 		}*/
-		sim(v) = makeTimedVector(v, coef).normalized().dot(vec);
+		VectorXf tv = makeTimedVector(v, coef);
+		float wPrior = getWordProbByTime(v, tv);
+		if (wPrior / tPrior < threshold)
+		{
+			sim[v] = make_pair(-INFINITY, wPrior / tPrior);
+			continue;
+		}
+		sim[v] = make_pair(tv.normalized().dot(vec), wPrior / tPrior);
 	}
 
 	for (size_t k = 0; k < K; ++k)
 	{
-		size_t idx = max_element(sim.data(), sim.data() + sim.size()) - sim.data();
-		top.emplace_back(vocabs.getStr(idx), sim.data()[idx]);
-		sim.data()[idx] = -INFINITY;
+		size_t idx = max_element(sim.begin(), sim.end()) - sim.begin();
+		top.emplace_back(vocabs.getStr(idx), sim[idx].first, sim[idx].second);
+		sim.data()[idx].first = -INFINITY;
 	}
 	return top;
 }
@@ -831,6 +882,10 @@ void ChronoGramModel::saveModel(ostream & os) const
 	writeToBinStream(os, frequencies);
 	writeToBinStream(os, in);
 	writeToBinStream(os, out);
+	writeToBinStream(os, zeta);
+	writeToBinStream(os, lambda);
+	writeToBinStream(os, timePadding);
+	writeToBinStream(os, timePrior);
 }
 
 ChronoGramModel ChronoGramModel::loadModel(istream & is)
@@ -848,6 +903,20 @@ ChronoGramModel ChronoGramModel::loadModel(istream & is)
 	readFromBinStream(is, ret.frequencies);
 	readFromBinStream(is, ret.in);
 	readFromBinStream(is, ret.out);
+	try
+	{
+		readFromBinStream(is, ret.zeta);
+		readFromBinStream(is, ret.lambda);
+		readFromBinStream(is, ret.timePadding);
+		readFromBinStream(is, ret.timePrior);
+	}
+	catch (const exception&)
+	{
+		ret.timePadding = 0;
+		ret.timePrior = VectorXf::Zero(L);
+		ret.timePrior[0] = 1;
+	}
+
 	ret.buildTable();
 	ret.normalizeWordDist();
 	return ret;
@@ -862,8 +931,7 @@ float ChronoGramModel::getWordProbByTime(const std::string & word, float timePoi
 
 float ChronoGramModel::getTimePrior(float timePoint) const
 {
-	//return (1 - exp(-pow(timePrior.dot(makeCoef(L, normalizedTimePoint(timePoint))), 2) / 2)) / timePriorScale;
-	return 0;
+	return getTimePrior(makeCoef(L, normalizedTimePoint(timePoint)));
 }
 
 float ChronoGramModel::LLEvaluater::operator()(float timePoint) const

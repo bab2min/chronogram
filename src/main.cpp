@@ -27,7 +27,7 @@ struct Args
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
 	int nsQ = 8, initStep = 10;
-	float eta = 1.f, zeta = .125f, lambda = .25f;
+	float eta = 1.f, zeta = .125f, lambda = .25f, padding = -1;
 };
 
 struct MultipleReader
@@ -107,6 +107,7 @@ int main(int argc, char* argv[])
 			("eta", "", cxxopts::value<float>())
 			("z,zeta", "", cxxopts::value<float>())
 			("lambda", "", cxxopts::value<float>())
+			("p,padding", "", cxxopts::value<float>())
 			;
 
 		try
@@ -155,6 +156,7 @@ int main(int argc, char* argv[])
 			READ_OPT(eta, float);
 			READ_OPT(zeta, float);
 			READ_OPT(lambda, float);
+			READ_OPT(padding, float);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -175,19 +177,30 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
-	cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
-	cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
-	cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << "\tLambda: " << args.lambda << endl;
 	ChronoGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative,
 		args.eta, args.zeta, args.lambda };
+	if (args.padding >= 0)
+	{
+		tgm.setPadding(args.padding);
+	}
+
 	if (!args.load.empty())
 	{
 		cout << "Loading Model: " << args.load << endl;
 		ifstream ifs{ args.load, ios_base::binary };
 		tgm = ChronoGramModel::loadModel(ifs);
+		cout << "Dimension: " << tgm.getM() << "\tOrder: " << tgm.getL() << endl;
+		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << endl;
+		cout << "Zeta: " << tgm.getZeta() << "\tLambda: " << tgm.getLambda() << endl;
+		cout << "Padding: " << tgm.getPadding() << endl;
 	}
 	else if (!args.input.empty())
 	{
+		cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
+		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
+		cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << "\tLambda: " << args.lambda << endl;
+		cout << "Padding: " << tgm.getPadding() << endl;
+
 		cout << "Training Input: ";
 		for (auto& s : args.input)
 		{
@@ -299,8 +312,8 @@ int main(int argc, char* argv[])
 			auto evaluator = tgm.evaluateSent(words, args.window, 1);
 			for (size_t i = 0; i <= args.initStep; ++i)
 			{
-				float z = i / (float)args.initStep;
-				cout << tgm.unnormalizedTimePoint(z) << ": " << evaluator(z) << endl;
+				float z = tgm.getMinPoint() + (i / (float)args.initStep) * (tgm.getMaxPoint() - tgm.getMinPoint());
+				cout << z << ": " << evaluator(tgm.normalizedTimePoint(z)) << endl;
 			}
 		}
 		else if (line[0] == '!') // estimate time of word
@@ -312,18 +325,18 @@ int main(int argc, char* argv[])
 			{
 				for (size_t i = 0; i <= args.initStep; ++i)
 				{
-					float z = i / (float)args.initStep;
-					cout << tgm.unnormalizedTimePoint(z) << ": " <<
-						tgm.getTimePrior(tgm.unnormalizedTimePoint(z)) << endl;
+					float z = tgm.getMinPoint() + (i / (float)args.initStep) * (tgm.getMaxPoint() - tgm.getMinPoint());
+					cout << z << ": " << tgm.getTimePrior(z) << endl;
 				}
 			}
 			else
 			{
 				for (size_t i = 0; i <= args.initStep; ++i)
 				{
-					float z = i / (float)args.initStep;
-					cout << tgm.unnormalizedTimePoint(z) << ": " <<
-						tgm.getWordProbByTime(words[0], tgm.unnormalizedTimePoint(z)) << endl;
+					float z = tgm.getMinPoint() + (i / (float)args.initStep) * (tgm.getMaxPoint() - tgm.getMinPoint());
+					float w = tgm.getWordProbByTime(words[0], z);
+					float t = tgm.getTimePrior(z);
+					cout << z << ": " << w << "\t" << w / t << endl;
 				}
 			}
 		}
@@ -443,14 +456,18 @@ int main(int argc, char* argv[])
 			cout << "==== Most Similar at " << searchingTimePoint << " ====" << endl;
 			for (auto& p : tgm.mostSimilar(positives, negatives, searchingTimePoint, 20))
 			{
-				cout << get<0>(p) << '\t' << get<1>(p) << endl;
+				if (get<1>(p) == 0)
+				{
+					break;
+				}
+				cout << left << setw(12) << get<0>(p) << '\t' << get<1>(p) << '\t' << get<2>(p) << endl;
 			}
 			cout << endl;
 
 			cout << "==== Most Similar Overall ====" << endl;
 			for (auto& p : tgm.mostSimilar(positivesO, negativesO, 20))
 			{
-				cout << get<0>(p) << '\t' << get<1>(p) << endl;
+				cout << left << setw(12) << get<0>(p) << '\t' << get<1>(p) << endl;
 			}
 			cout << endl;
 		}
