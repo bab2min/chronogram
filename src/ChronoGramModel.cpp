@@ -908,9 +908,10 @@ ChronoGramModel ChronoGramModel::loadModel(istream & is)
 		readFromBinStream(is, ret.zeta);
 		readFromBinStream(is, ret.lambda);
 		readFromBinStream(is, ret.timePadding);
+		ret.timePrior.resize(L);
 		readFromBinStream(is, ret.timePrior);
 	}
-	catch (const exception&)
+	catch (const exception& e)
 	{
 		ret.timePadding = 0;
 		ret.timePrior = VectorXf::Zero(L);

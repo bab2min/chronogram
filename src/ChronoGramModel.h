@@ -184,7 +184,8 @@ public:
 		in(std::move(o.in)), out(std::move(o.out)), zBias(o.zBias), zSlope(o.zSlope),
 		avgNegCoef(std::move(o.avgNegCoef)), avgNegMatrix(std::move(o.avgNegMatrix)),
 		vEta(std::move(o.vEta)), zeta(o.zeta), lambda(o.lambda),
-		timePrior(std::move(o.timePrior)), timePadding(o.timePadding)
+		timePrior(std::move(o.timePrior)), timePadding(o.timePadding),
+		timePriorScale(o.timePriorScale), wordScale(std::move(o.wordScale))
 	{
 	}
 
@@ -208,6 +209,8 @@ public:
 		lambda = o.lambda;
 		timePrior = std::move(o.timePrior);
 		timePadding = o.timePadding;
+		timePriorScale = o.timePriorScale;
+		wordScale = std::move(o.wordScale);
 		return *this;
 	}
 
