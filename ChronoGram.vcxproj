@@ -29,7 +29,7 @@
   <ItemGroup>
     <ClInclude Include="src\cxxopts.hpp" />
     <ClInclude Include="src\polynomials.hpp" />
-    <ClInclude Include="src\TimeGramModel.h" />
+    <ClInclude Include="src\ChronoGramModel.h" />
     <ClInclude Include="src\dictionary.h" />
     <ClInclude Include="src\IOUtils.h" />
     <ClInclude Include="src\mathUtils.h" />
@@ -38,7 +38,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="src\TimeGramModel.cpp" />
+    <ClCompile Include="src\ChronoGramModel.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
@@ -46,6 +46,7 @@
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>AdaGramCpp</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.17134.0</WindowsTargetPlatformVersion>
+    <ProjectName>ChronoGram</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">

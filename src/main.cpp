@@ -1,6 +1,3 @@
-// AdaGram-Cpp.cpp : Defines the entry point for the console application.
-//
-
 #include <vector>
 #include <array>
 #include <map>
@@ -17,7 +14,7 @@
 #include <thread>
 
 #include "cxxopts.hpp"
-#include "TimeGramModel.h"
+#include "ChronoGramModel.h"
 
 using namespace std;
 
@@ -44,9 +41,9 @@ struct MultipleReader
 		ifs = ifstream{ files[currentId] };
 	}
 
-	TimeGramModel::ReadResult operator()(size_t id)
+	ChronoGramModel::ReadResult operator()(size_t id)
 	{
-		TimeGramModel::ReadResult rr;
+		ChronoGramModel::ReadResult rr;
 		string line;
 		if (id == 0)
 		{
@@ -181,13 +178,13 @@ int main(int argc, char* argv[])
 	cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 	cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
 	cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << "\tLambda: " << args.lambda << endl;
-	TimeGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative,
+	ChronoGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative,
 		args.eta, args.zeta, args.lambda };
 	if (!args.load.empty())
 	{
 		cout << "Loading Model: " << args.load << endl;
 		ifstream ifs{ args.load, ios_base::binary };
-		tgm = TimeGramModel::loadModel(ifs);
+		tgm = ChronoGramModel::loadModel(ifs);
 	}
 	else if (!args.input.empty())
 	{
@@ -236,7 +233,7 @@ int main(int argc, char* argv[])
 		float avgErr = 0;
 		size_t n = 0;
 		MultipleReader reader{ {args.eval} };
-		tgm.evaluate(bind(&MultipleReader::operator(), &reader, placeholders::_1), [&](TimeGramModel::EvalResult r)
+		tgm.evaluate(bind(&MultipleReader::operator(), &reader, placeholders::_1), [&](ChronoGramModel::EvalResult r)
 		{
 			ofs << r.trueTime << "\t" << r.estimatedTime << "\t" << r.ll
 				<< "\t" << r.llPerWord << "\t" << r.normalizedErr << endl;

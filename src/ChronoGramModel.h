@@ -33,7 +33,7 @@ struct VocabCounter
 	}
 };
 
-class TimeGramModel
+class ChronoGramModel
 {
 public:
 	struct ReadResult
@@ -45,7 +45,7 @@ public:
 
 	class LLEvaluater
 	{
-		friend class TimeGramModel;
+		friend class ChronoGramModel;
 		size_t windowLen, nsQ;
 		std::vector<uint32_t> wordIds;
 		struct MixedVectorCoef
@@ -64,8 +64,8 @@ public:
 		};
 
 		std::unordered_map<uint32_t, MixedVectorCoef> coefs;
-		const TimeGramModel& tgm;
-		LLEvaluater(const TimeGramModel& _tgm, size_t _windowLen,
+		const ChronoGramModel& tgm;
+		LLEvaluater(const ChronoGramModel& _tgm, size_t _windowLen,
 			size_t _nsQ, std::vector<uint32_t>&& _wordIds, 
 			std::unordered_map<uint32_t, MixedVectorCoef>&& _coefs)
 			: windowLen(_windowLen), nsQ(_nsQ),
@@ -154,7 +154,7 @@ private:
 
 	float getWordProbByTime(uint32_t w, float timePoint) const;
 public:
-	TimeGramModel(size_t _M = 100, size_t _L = 6,
+	ChronoGramModel(size_t _M = 100, size_t _L = 6,
 		float _subsampling = 1e-4, size_t _negativeSampleSize = 5,
 		float _eta = 1.f, float _zeta = .125f, float _lambda = .25f,
 		size_t seed = std::random_device()())
@@ -171,7 +171,7 @@ public:
 		for (size_t l = 0; l < L; ++l) for (size_t m = 0; m < L; ++m) avgNegMatrix(l, m) = integratedChebyshevTT(l, m) / 2;
 	}
 
-	TimeGramModel(TimeGramModel&& o)
+	ChronoGramModel(ChronoGramModel&& o)
 		: M(o.M), L(o.L), globalData(o.globalData),
 		vocabs(std::move(o.vocabs)), frequencies(std::move(o.frequencies)), 
 		unigramTable(std::move(o.unigramTable)), unigramDist(std::move(o.unigramDist)),
@@ -181,7 +181,7 @@ public:
 	{
 	}
 
-	TimeGramModel& operator=(TimeGramModel&& o)
+	ChronoGramModel& operator=(ChronoGramModel&& o)
 	{
 		M = o.M;
 		L = o.L;
@@ -235,7 +235,7 @@ public:
 	Eigen::MatrixXf getEmbedding(const std::string& word) const;
 
 	void saveModel(std::ostream& os) const;
-	static TimeGramModel loadModel(std::istream& is);
+	static ChronoGramModel loadModel(std::istream& is);
 
 	float getMinPoint() const { return zBias; }
 	float getMaxPoint() const { return zBias + 1 / zSlope; }

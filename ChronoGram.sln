@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.27703.2035
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TimeGram", "TimeGram.vcxproj", "{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ChronoGram", "ChronoGram.vcxproj", "{C1F35E0E-61A4-4877-B27E-0646A9EE8DC6}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TimeGram-Lin", "TimeGram-Lin.vcxproj", "{9799302B-140D-4024-A150-B29102D262AC}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ChronoGram-Lin", "ChronoGram-Lin.vcxproj", "{9799302B-140D-4024-A150-B29102D262AC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
