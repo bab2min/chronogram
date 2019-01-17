@@ -473,7 +473,7 @@ bool ChronoGramModel::addFixedWord(const std::string & word)
 }
 
 void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
-	size_t numWorkers, size_t window_length, float start_lr, size_t batch,
+	size_t numWorkers, size_t windowLen, float start_lr, size_t batch,
 	size_t epoch, size_t report)
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
@@ -520,7 +520,7 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 				futures.emplace_back(workers.enqueue([&](size_t threadId)
 				{
 					trainVectorsMulti(d.first.data(), d.first.size(), d.second,
-						window_length, start_lr, epoch, report, ld[threadId]);
+						windowLen, start_lr, epoch, report, ld[threadId]);
 				}));
 			}
 			trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
@@ -531,7 +531,7 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 			for (auto& d : collections)
 			{
 				trainVectors(d.first.data(), d.first.size(), d.second,
-					window_length, start_lr, epoch, report);
+					windowLen, start_lr, epoch, report);
 			}
 			trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
 		}

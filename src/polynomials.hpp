@@ -190,7 +190,8 @@ namespace poly
 		case 14: return chebyshevTf<14>(x);
 		case 15: return chebyshevTf<15>(x);
 		}
-		return _Type{};
+		if(order % 2) return 2 * chebyshevTGet(order / 2, x) * chebyshevTGet(order / 2 + 1, x) - x;
+		return 2 * pow(chebyshevTGet(order / 2, x), 2) - 1;
 	}
 
 	template<class _Type> _Type chebyshevTDerived(size_t order, _Type x)

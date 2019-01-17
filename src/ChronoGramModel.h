@@ -217,7 +217,7 @@ public:
 	void buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt = 10);
 	bool addFixedWord(const std::string& word);
 	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
-		size_t window_length = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
+		size_t windowLen = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
 	std::vector<std::tuple<std::string, float, float>> nearestNeighbors(const std::string& word, 

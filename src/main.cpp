@@ -26,8 +26,8 @@ struct Args
 	int order = 5, epoch = 1, negative = 5;
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
-	int nsQ = 8, initStep = 10;
-	float eta = 1.f, zeta = .125f, lambda = .25f, padding = -1;
+	int nsQ = 8, initStep = 32;
+	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
 };
 
 struct MultipleReader
@@ -394,10 +394,10 @@ int main(int argc, char* argv[])
 			}
 			else
 			{
-				cout << "Similarity Between '" << words[0].first << "' @" << words[0].second
+				cout << "Similarity between '" << words[0].first << "' @" << words[0].second
 					<< " and '" << words[1].first << "' @" << words[1].second
 					<< " : " << tgm.similarity(words[0].first, words[0].second, words[1].first, words[1].second) << endl;
-				cout << "Overall Similarity Between '" << words[0].first << "' and " << words[1].first
+				cout << "Overall similarity between '" << words[0].first << "' and '" << words[1].first
 					<< "' : " << tgm.similarity(words[0].first,words[1].first) << endl;
 			}
 		}
@@ -448,10 +448,12 @@ int main(int argc, char* argv[])
 				}
 			}
 
-			/*for (auto& p : positives)
+			for (auto& p : positives)
 			{
-				cout << "P(@" << p.second << "|" << p.first << ") = " << tgm.getWordProbByTime(p.first, p.second) << endl;
-			}*/
+				float wp = tgm.getWordProbByTime(p.first, p.second);
+				float tp = tgm.getTimePrior(p.second);
+				cout << "P(@" << p.second << " | " << p.first << ") = " << wp << ",P(@" << p.second << ") = " << tp << endl;
+			}
 
 			cout << "==== Most Similar at " << searchingTimePoint << " ====" << endl;
 			for (auto& p : tgm.mostSimilar(positives, negatives, searchingTimePoint, 20))
