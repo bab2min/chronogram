@@ -28,6 +28,7 @@ struct Args
 	int report = 100000;
 	int nsQ = 8, initStep = 32;
 	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
+	float timeNegative = 5.f;
 };
 
 struct MultipleReader
@@ -99,6 +100,7 @@ int main(int argc, char* argv[])
 			("r,order", "Order of Chebyshev Polynomial", cxxopts::value<int>())
 			("e,epoch", "Number of Epoch", cxxopts::value<int>())
 			("n,negative", "Negative Sampling Size", cxxopts::value<int>())
+			("T,timeNegative", "Time Negative Weight", cxxopts::value<float>())
 			("b,batch", "Batch Docs Size", cxxopts::value<int>())
 			("t,minCnt", "Min Count Threshold of Word", cxxopts::value<int>())
 			("report", "", cxxopts::value<int>())
@@ -157,6 +159,7 @@ int main(int argc, char* argv[])
 			READ_OPT(zeta, float);
 			READ_OPT(lambda, float);
 			READ_OPT(padding, float);
+			READ_OPT(timeNegative, float);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -178,7 +181,7 @@ int main(int argc, char* argv[])
 	}
 
 	ChronoGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative,
-		args.eta, args.zeta, args.lambda };
+		args.timeNegative, args.eta, args.zeta, args.lambda };
 	if (args.padding >= 0)
 	{
 		tgm.setPadding(args.padding);
@@ -199,7 +202,7 @@ int main(int argc, char* argv[])
 		cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
 		cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << "\tLambda: " << args.lambda << endl;
-		cout << "Padding: " << tgm.getPadding() << endl;
+		cout << "Padding: " << tgm.getPadding() << "\tTime Negative Weight: " << args.timeNegative << endl;
 
 		cout << "Training Input: ";
 		for (auto& s : args.input)
@@ -211,7 +214,8 @@ int main(int argc, char* argv[])
 		Timer timer;
 		MultipleReader reader{ args.input };
 		tgm.buildVocab(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.minCnt);
-		cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size() << endl;
+		cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size() 
+			<< "\tTotal Words: " << tgm.getTotalWords() << endl;
 		if(!args.fixed.empty())
 		{
 			ifstream ifs{ args.fixed };
@@ -246,7 +250,8 @@ int main(int argc, char* argv[])
 		float avgErr = 0;
 		size_t n = 0;
 		MultipleReader reader{ {args.eval} };
-		tgm.evaluate(bind(&MultipleReader::operator(), &reader, placeholders::_1), [&](ChronoGramModel::EvalResult r)
+		tgm.evaluate(bind(&MultipleReader::operator(), &reader, placeholders::_1), 
+			[&](ChronoGramModel::EvalResult r)
 		{
 			ofs << r.trueTime << "\t" << r.estimatedTime << "\t" << r.ll
 				<< "\t" << r.llPerWord << "\t" << r.normalizedErr << endl;
@@ -272,7 +277,7 @@ int main(int argc, char* argv[])
 	{
 		if (line[0] == '~') // calculate arc length
 		{
-			if (line[1] == '~') // find shortest arc length
+			if (line.size() == 1) // find shortest arc length
 			{
 				cout << "==== Shortest Arc Length ====" << endl;
 				vector<pair<string, float>> lens;
@@ -452,16 +457,13 @@ int main(int argc, char* argv[])
 			{
 				float wp = tgm.getWordProbByTime(p.first, p.second);
 				float tp = tgm.getTimePrior(p.second);
-				cout << "P(@" << p.second << " | " << p.first << ") = " << wp << ",P(@" << p.second << ") = " << tp << endl;
+				cout << "P(@" << p.second << " | " << p.first << ") = " << wp << ",\tP(@" << p.second << ") = " << tp << endl;
 			}
 
 			cout << "==== Most Similar at " << searchingTimePoint << " ====" << endl;
 			for (auto& p : tgm.mostSimilar(positives, negatives, searchingTimePoint, 20))
 			{
-				if (get<1>(p) == 0)
-				{
-					break;
-				}
+				if (get<1>(p) <= 0) break;
 				cout << left << setw(12) << get<0>(p) << '\t' << get<1>(p) << '\t' << get<2>(p) << endl;
 			}
 			cout << endl;

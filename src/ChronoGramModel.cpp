@@ -139,10 +139,10 @@ float ChronoGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWe
 	auto gPos = makeTimedVector(x, lWeight);
 	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5);
 	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-3;
-	pr += -avgTimeSqNorm(x) * lambda;
+	pr += -avgTimeSqNorm(x) * lambda * timeNegativeWeight;
 
 	in.block(0, x * L, M, L) += gPos * lWeight.transpose() * lambda * lr;
-	in.block(0, x * L, M, L) += -in.block(0, x * L, M, L) * avgNegMatrix * lambda * lr;
+	in.block(0, x * L, M, L) += -in.block(0, x * L, M, L) * avgNegMatrix * timeNegativeWeight * lambda * lr;
 	return pr;
 }
 
@@ -158,10 +158,10 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const Eigen::Ve
 	auto gPos = makeTimedVector(x, lWeight);
 	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5);
 	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-3;
-	pr += -avgTimeSqNorm(x) * lambda;
+	pr += -avgTimeSqNorm(x) * lambda * timeNegativeWeight;
 
 	grad += gPos * lWeight.transpose() * lambda * lr;
-	grad += -in.block(0, x * L, M, L) * avgNegMatrix * lambda * lr;
+	grad += -in.block(0, x * L, M, L) * avgNegMatrix * timeNegativeWeight * lambda * lr;
 	return pr;
 }
 
@@ -171,9 +171,9 @@ float ChronoGramModel::updateTimePrior(float lr, const Eigen::VectorXf & lWeight
 	float p = timePrior.dot(lWeight);
 	float pr = log(1 - exp(-p * p / 2) + 1e-5);
 	p /= exp(p * p / 2) - 1 + 1e-3;
-	pr += -avgTimePrior();
+	pr += -avgTimePrior() * timeNegativeWeight;
 	timePrior += p * lWeight * lr;
-	timePrior -= avgNegMatrix * timePrior * lr;
+	timePrior -= avgNegMatrix * timePrior * timeNegativeWeight * lr;
 	return pr;
 }
 

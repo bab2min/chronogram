@@ -123,6 +123,7 @@ private:
 	std::vector<float> unigramDist;
 	std::discrete_distribution<uint32_t> unigramTable;
 	size_t negativeSampleSize = 0;
+	float timeNegativeWeight = 2.f;
 
 	Timer timer;
 
@@ -159,11 +160,11 @@ private:
 	float getWordProbByTime(uint32_t w, float timePoint) const;
 public:
 	ChronoGramModel(size_t _M = 100, size_t _L = 6,
-		float _subsampling = 1e-4, size_t _negativeSampleSize = 5,
-		float _eta = 1.f, float _zeta = .125f, float _lambda = .25f,
+		float _subsampling = 1e-4, size_t _negativeSampleSize = 5, float _timeNegativeWeight = 5.f,
+		float _eta = 1.f, float _zeta = .5f, float _lambda = .1f,
 		size_t seed = std::random_device()())
 		: M(_M), L(_L), subsampling(_subsampling), eta(_eta), zeta(_zeta), lambda(_lambda),
-		vEta(Eigen::VectorXf::Constant(_L, _eta)),
+		timeNegativeWeight(_timeNegativeWeight), vEta(Eigen::VectorXf::Constant(_L, _eta)),
 		negativeSampleSize(_negativeSampleSize)
 	{
 		globalData.rg = std::mt19937_64{ seed };
@@ -261,6 +262,8 @@ public:
 
 	size_t getL() const { return L; }
 	size_t getM() const { return M; }
+
+	size_t getTotalWords() const { return std::accumulate(frequencies.begin(), frequencies.end(), 0); }
 
 	float getZeta() const { return zeta; }
 	float getLambda() const { return lambda; }
