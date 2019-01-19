@@ -179,9 +179,9 @@ float ChronoGramModel::updateTimePrior(float lr, const Eigen::VectorXf & lWeight
 
 
 void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
-	size_t window_length, float start_lr, size_t nEpoch, size_t report)
+	size_t windowLen, float start_lr, size_t nEpoch, size_t report)
 {
-	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
+	uniform_int_distribution<size_t> uid{ 0, windowLen > 2 ? windowLen - 2 : 0 };
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
 
 	for (size_t i = 0; i < N; ++i)
@@ -189,8 +189,8 @@ void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoin
 		const auto& x = ws[i];
 		float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
 		size_t jBegin = 0, jEnd = N;
-		if (i > window_length) jBegin = i - window_length;
-		if (i + window_length < N) jEnd = i + window_length;
+		if (i > windowLen) jBegin = i - windowLen;
+		if (i + windowLen < N) jEnd = i + windowLen;
 
 		float llSum = 0;
 		size_t llCnt = 0;
@@ -234,9 +234,9 @@ void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoin
 }
 
 void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timePoint,
-	size_t window_length, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld)
+	size_t windowLen, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld)
 {
-	uniform_int_distribution<size_t> uid{ 0, window_length > 2 ? window_length - 2 : 0 };
+	uniform_int_distribution<size_t> uid{ 0, windowLen > 2 ? windowLen - 2 : 0 };
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
 
 	float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
@@ -244,7 +244,7 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 	size_t llCnt = 0;
 
 	ld.updateOutIdx.clear();
-	ld.updateOutMat = MatrixXf::Zero(M, negativeSampleSize * (window_length + 1) * 2);
+	ld.updateOutMat = MatrixXf::Zero(M, negativeSampleSize * (windowLen + 1) * 2);
 	MatrixXf updateIn = MatrixXf::Zero(M, 1);
 	MatrixXf updateInBlock = MatrixXf::Zero(M, L);
 	for (size_t i = 0; i < N; ++i)
@@ -252,8 +252,8 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 		const auto& x = ws[i];
 
 		size_t jBegin = 0, jEnd = N;
-		if (i > window_length) jBegin = i - window_length;
-		if (i + window_length < N) jEnd = i + window_length;
+		if (i > windowLen) jBegin = i - windowLen;
+		if (i + windowLen < N) jEnd = i + windowLen;
 		updateIn.setZero();
 
 		// update in, out vector
@@ -594,6 +594,21 @@ float ChronoGramModel::arcLengthOfWord(const string & word, size_t step) const
 	return len;
 }
 
+float ChronoGramModel::angleOfWord(const std::string & word, size_t step) const
+{
+	size_t wv = vocabs.get(word);
+	if (wv == (size_t)-1) return {};
+	float angle = 0;
+	VectorXf v = makeTimedVector(wv, makeCoef(L, timePadding));
+	for (size_t i = 0; i < step; ++i)
+	{
+		VectorXf u = makeTimedVector(wv, makeCoef(L, (float)(i + 1) / step * (1 - timePadding * 2) + timePadding));
+		angle += acos(u.normalized().dot(v.normalized()));
+		v.swap(u);
+	}
+	return angle;
+}
+
 vector<tuple<string, float, float>> ChronoGramModel::nearestNeighbors(const string & word,
 	float wordTimePoint, float searchingTimePoint, size_t K) const
 {
@@ -807,14 +822,40 @@ pair<_XType, _LLType> findMaximum(_XType s, _XType e, _XType threshold,
 pair<float, float> ChronoGramModel::predictSentTime(const std::vector<std::string>& words, size_t windowLen, size_t nsQ, size_t initStep) const
 {
 	auto evaluator = evaluateSent(words, windowLen, nsQ);
-	float maxLL = -INFINITY, maxP = 0;
-	auto t = findMaximum(0.f, 1.f, 1e-4f,
-		initStep, 0,
-		0.2f, 0.8f, 10.f,
-		[&](auto x) { return evaluator(x); },
-		[&](auto x) { return evaluator.fgh(x); });
-	maxLL = t.second, maxP = t.first;
-	return make_pair(unnormalizedTimePoint(maxP), maxLL);
+	constexpr uint32_t SCALE = 0x80000000;
+	map<uint32_t, pair<float, float>> lls;
+	float maxLL = -INFINITY;
+	uint32_t maxP = 0;
+	for (size_t i = 0; i <= initStep; ++i)
+	{
+		auto t = evaluator.fg(i / (float)initStep);
+		auto m = (uint32_t)(SCALE * (float)i / initStep);
+		lls[m] = make_pair(get<0>(t), get<1>(t));
+		if (get<0>(t) > maxLL)
+		{
+			maxP = m;
+			maxLL = get<0>(t);
+		}
+	}
+
+	for (auto it = ++lls.begin(); it != lls.end(); ++it)
+	{
+		auto prevIt = prev(it);
+		if (it->first - prevIt->first < (uint32_t)(SCALE * 0.004f)) continue;
+		if (prevIt->second.second < 0) continue;
+		if (it->second.second > 0) continue;
+		auto m = (prevIt->first + it->first) / 2;
+		auto t = evaluator.fg(m / (float)SCALE);
+		lls.emplace(m, make_pair(get<0>(t), get<1>(t)));
+		it = prevIt;
+		if (get<0>(t) > maxLL)
+		{
+			maxP = m;
+			maxLL = get<0>(t);
+		}
+	}
+
+	return make_pair(unnormalizedTimePoint(maxP / (float)SCALE), maxLL);
 }
 
 vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<ReadResult(size_t)>& reader,
@@ -983,14 +1024,12 @@ float ChronoGramModel::LLEvaluater::operator()(float timePoint) const
 	return ll;
 }
 
-tuple<float, float, float> ChronoGramModel::LLEvaluater::fgh(float timePoint) const
+tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
 {
 	const size_t N = wordIds.size(), V = tgm.unigramDist.size();
-	constexpr float eps = 1 / 1024.f;
-	auto tCoef = makeCoef(tgm.L, timePoint), tDCoef = makeDCoef(tgm.L, timePoint), tDDCoef = makeDCoef(tgm.L, timePoint + eps);
-	tDDCoef = ((tDDCoef - tDCoef) / eps).segment(1, tgm.L - 2).eval();
+	auto tCoef = makeCoef(tgm.L, timePoint), tDCoef = makeDCoef(tgm.L, timePoint);
 
-	float ll = 0, dll = 0, ddll = 0;
+	float ll = 0, dll = 0;
 	unordered_map<uint32_t, uint32_t> count;
 
 	for (size_t i = 0; i < N; ++i)
@@ -1011,18 +1050,13 @@ tuple<float, float, float> ChronoGramModel::LLEvaluater::fgh(float timePoint) co
 			ll += logsigmoid(d) * (1 - tgm.zeta);
 			float dd = inner_product(tDCoef.data(), tDCoef.data() + tgm.L - 1, cx.get(y, nsQ, tgm.L) + 1, 0.f), sd;
 			dll += dd * (sd = sigmoid(-d)) * (1 - tgm.zeta);
-			float ddd = inner_product(tDDCoef.data(), tDDCoef.data() + tgm.L - 2, cx.get(y, nsQ, tgm.L) + 2, 0.f);
-			ddll += (ddd * sd - pow(dd, 2) * sd * (1 - sd)) * (1 - tgm.zeta);
 			count[x]++;
 		}
 
 		auto v = tgm.makeTimedVector(x, tCoef);
-		VectorXf dv = tgm.in.block(0, x * tgm.L + 1, tgm.M, tgm.L - 1) * tDCoef;
 		float sqn = v.squaredNorm() / 2 * tgm.lambda, sd;
 		ll += log(1 - exp(-sqn)) * tgm.zeta; 
-		dll += v.dot(dv) * tgm.lambda / (sd = exp(sqn) - 1 + 1e-3f) * tgm.zeta;
-		ddll += (tgm.lambda * (v.dot(tgm.in.block(0, x * tgm.L + 2, tgm.M, tgm.L - 2) * tDDCoef) - tgm.lambda * pow(v.dot(dv), 2) + dv.squaredNorm()) / sd
-			- pow(tgm.lambda * v.dot(dv) / sd, 2)) * tgm.zeta;
+		dll += v.dot(tgm.in.block(0, x * tgm.L + 1, tgm.M, tgm.L - 1) * tDCoef) * tgm.lambda / (sd = exp(sqn) - 1 + 1e-3f) * tgm.zeta;
 	}
 
 	if (nsQ)
@@ -1038,14 +1072,11 @@ tuple<float, float, float> ChronoGramModel::LLEvaluater::fgh(float timePoint) co
 				nll += tgm.unigramDist[j] * logsigmoid(-d);
 				float dd = inner_product(tDCoef.data(), tDCoef.data() + tgm.L - 1, cx.get(j, nsQ, tgm.L) + 1, 0.f), sd;
 				dnll += -tgm.unigramDist[j] * dd * (sd = sigmoid(d));
-				float ddd = inner_product(tDDCoef.data(), tDDCoef.data() + tgm.L - 2, cx.get(j, nsQ, tgm.L) + 2, 0.f);
-				ddnll += -tgm.unigramDist[j] * (ddd * sd + pow(dd, 2) * sd * (1 - sd));
 				denom += tgm.unigramDist[j];
 			}
 			ll += nll / denom * tgm.negativeSampleSize * p.second * (1 - tgm.zeta);
 			dll += dnll / denom * tgm.negativeSampleSize * p.second * (1 - tgm.zeta);
-			ddll += ddnll / denom * tgm.negativeSampleSize * p.second * (1 - tgm.zeta);
 		}
 	}
-	return make_tuple(ll, dll, ddll);
+	return make_tuple(ll, dll);
 }

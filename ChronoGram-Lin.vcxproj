@@ -37,7 +37,7 @@
   <PropertyGroup Label="Globals">
     <ProjectGuid>{9799302b-140d-4024-a150-b29102d262ac}</ProjectGuid>
     <Keyword>Linux</Keyword>
-    <RootNamespace>AdaGram_Cpp_Lin</RootNamespace>
+    <RootNamespace>ChronoGram_Lin</RootNamespace>
     <MinimumVisualStudioVersion>15.0</MinimumVisualStudioVersion>
     <ApplicationType>Linux</ApplicationType>
     <ApplicationTypeRevision>1.0</ApplicationTypeRevision>

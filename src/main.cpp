@@ -26,7 +26,7 @@ struct Args
 	int order = 5, epoch = 1, negative = 5;
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
-	int nsQ = 8, initStep = 32;
+	int nsQ = 8, initStep = 8;
 	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
 	float timeNegative = 5.f;
 };
@@ -301,12 +301,35 @@ int main(int argc, char* argv[])
 					cout << it->first << "\t" << it->second << endl;
 				}
 				cout << endl;
+
+				cout << "==== Shortest Angle ====" << endl;
+				lens.clear();
+				for (auto& w : tgm.getVocabs())
+				{
+					lens.emplace_back(w, tgm.angleOfWord(w));
+				}
+				sort(lens.begin(), lens.end(), [](auto a, auto b)
+				{
+					return a.second < b.second;
+				});
+				i = 0;
+				for (auto& p : lens)
+				{
+					cout << p.first << "\t" << p.second / EIGEN_PI * 180 << endl;
+					if (++i >= 20) break;
+				}
+				cout << "==== Longest Angle ====" << endl;
+				for (auto it = lens.end() - 20; it != lens.end(); ++it)
+				{
+					cout << it->first << "\t" << it->second / EIGEN_PI * 180 << endl;
+				}
+				cout << endl;
 			}
 			else
 			{
 				string w = line.substr(1);
-				cout << "==== Arc Length of " << w << " ====" << endl;
-				cout << tgm.arcLengthOfWord(w) << endl << endl;
+				cout << "Arc Length of " << w << " : " << tgm.arcLengthOfWord(w) << endl;
+				cout << "Angle of " << w << " : " << tgm.angleOfWord(w) / EIGEN_PI * 180 << endl;
 			}
 		}
 		else if (line[0] == '`') // estimate time of text
@@ -446,7 +469,7 @@ int main(int argc, char* argv[])
 				}
 				else
 				{
-					(sign ? negatives : positives).emplace_back(word, tgm.getMinPoint());
+					(sign ? negatives : positives).emplace_back(word, searchingTimePoint);
 					(sign ? negativesO : positivesO).emplace_back(word);
 					lastInput = &(sign ? negatives : positives).back();
 					sign = false;

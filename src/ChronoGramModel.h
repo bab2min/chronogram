@@ -74,7 +74,7 @@ public:
 
 	public:
 		float operator()(float timePoint) const;
-		std::tuple<float, float, float> fgh(float timePoint) const;
+		std::tuple<float, float> fg(float timePoint) const;
 	};
 
 	struct EvalResult
@@ -103,7 +103,7 @@ private:
 	size_t L; // order of Lengendre polynomial
 	float subsampling;
 	float zBias = 0, zSlope = 1;
-	float eta = 1.f, zeta = .125f, lambda = .25f;
+	float eta = 1.f, zeta = .5f, lambda = .1f;
 
 	float timePadding = 0;
 	float timePriorScale = 1;
@@ -123,7 +123,7 @@ private:
 	std::vector<float> unigramDist;
 	std::discrete_distribution<uint32_t> unigramTable;
 	size_t negativeSampleSize = 0;
-	float timeNegativeWeight = 2.f;
+	float timeNegativeWeight = 5.f;
 
 	Timer timer;
 
@@ -149,9 +149,9 @@ private:
 	void buildModel();
 	void buildTable();
 	void trainVectors(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr, size_t nEpoch, size_t report);
+		size_t windowLen, float start_lr, size_t nEpoch, size_t report);
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
-		size_t window_length, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld);
+		size_t windowLen, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld);
 	void trainTimePrior(const float* ts, size_t N, float lr, size_t report);
 	void normalizeWordDist();
 
@@ -221,6 +221,8 @@ public:
 		size_t windowLen = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
+	float angleOfWord(const std::string& word, size_t step = 100) const;
+
 	std::vector<std::tuple<std::string, float, float>> nearestNeighbors(const std::string& word, 
 		float wordTimePoint, float searchingTimePoint, size_t K = 10) const;
 	std::vector<std::tuple<std::string, float, float>> mostSimilar(
@@ -235,12 +237,12 @@ public:
 	float similarity(const std::string& word1, const std::string& word2) const;
 
 	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen, size_t nsQ = 16) const;
-	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, size_t windowLen, size_t nsQ = 16, size_t initStep = 24) const;
+	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, 
+		size_t windowLen, size_t nsQ = 16, size_t initStep = 8) const;
 
 	std::vector<EvalResult> evaluate(const std::function<ReadResult(size_t)>& reader, 
 		const std::function<void(EvalResult)>& writer,
-		size_t numWorkers,
-		size_t windowLen, size_t nsQ, size_t initStep) const;
+		size_t numWorkers, size_t windowLen, size_t nsQ, size_t initStep) const;
 
 	const std::vector<std::string>& getVocabs() const
 	{
