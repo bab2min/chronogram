@@ -259,7 +259,7 @@ public:
 
 	Eigen::MatrixXf getEmbedding(const std::string& word) const;
 
-	void saveModel(std::ostream& os) const;
+	void saveModel(std::ostream& os, bool compressed = true) const;
 	static ChronoGramModel loadModel(std::istream& is);
 
 	float getMinPoint() const { return zBias; }

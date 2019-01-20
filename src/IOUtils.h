@@ -2,7 +2,7 @@
 
 #include <iostream>
 #include <vector>
-
+#include <map>
 
 template<class _Ty> inline void writeToBinStream(std::ostream& os, const _Ty& v);
 template<class _Ty> inline _Ty readFromBinStream(std::istream& is);
@@ -110,6 +110,26 @@ inline void readFromBinStreamImpl(std::istream& is, typename Eigen::Matrix<_Ty1,
 	}
 }
 
+void writeFloatVL(std::ostream& os, float f);
+float readFloatVL(std::istream& is);
+
+template<typename _Ty1, int _Rows, int _Cols>
+inline void writeToBinStreamCompressed(std::ostream& os, const typename Eigen::Matrix<_Ty1, _Rows, _Cols>& v)
+{
+	for (size_t i = 0; i < v.size(); ++i)
+	{
+		writeFloatVL(os, v.data()[i]);
+	}
+}
+
+template<typename _Ty1, int _Rows, int _Cols>
+inline void readFromBinStreamCompressed(std::istream& is, typename Eigen::Matrix<_Ty1, _Rows, _Cols>& v)
+{
+	for (size_t i = 0; i < v.size(); ++i)
+	{
+		v.data()[i] = readFloatVL(is);
+	}
+}
 
 template<class _Ty>
 inline void writeToBinStream(std::ostream& os, const _Ty& v)

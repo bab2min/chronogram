@@ -944,16 +944,26 @@ MatrixXf ChronoGramModel::getEmbedding(const string & word) const
 	return in.block(0, wv * L, M, L);
 }
 
-void ChronoGramModel::saveModel(ostream & os) const
+void ChronoGramModel::saveModel(ostream & os, bool compressed) const
 {
+	os.write("CHGR", 4);
+	writeToBinStream(os, (uint32_t)(compressed ? 2 : 1));
 	writeToBinStream(os, (uint32_t)M);
 	writeToBinStream(os, (uint32_t)L);
 	writeToBinStream(os, zBias);
 	writeToBinStream(os, zSlope);
 	vocabs.writeToFile(os);
 	writeToBinStream(os, frequencies);
-	writeToBinStream(os, in);
-	writeToBinStream(os, out);
+	if (compressed)
+	{
+		writeToBinStreamCompressed(os, in);
+		writeToBinStreamCompressed(os, out);
+	}
+	else
+	{
+		writeToBinStream(os, in);
+		writeToBinStream(os, out);
+	}
 	writeToBinStream(os, zeta);
 	writeToBinStream(os, lambda);
 	writeToBinStream(os, timePadding);
@@ -962,37 +972,77 @@ void ChronoGramModel::saveModel(ostream & os) const
 
 ChronoGramModel ChronoGramModel::loadModel(istream & is)
 {
-	size_t M = readFromBinStream<uint32_t>(is);
-	size_t L = readFromBinStream<uint32_t>(is);
-	ChronoGramModel ret{ M, L };
-	ret.zBias = readFromBinStream<float>(is);
-	ret.zSlope = readFromBinStream<float>(is);
-	ret.vocabs.readFromFile(is);
-	size_t V = ret.vocabs.size();
-	ret.in.resize(M, L * V);
-	ret.out.resize(M, V);
-
-	readFromBinStream(is, ret.frequencies);
-	readFromBinStream(is, ret.in);
-	readFromBinStream(is, ret.out);
-	try
+	auto pos = is.tellg();
+	char buf[5] = { 0, };
+	is.read(buf, 4);
+	if (strcmp(buf, "CHGR") == 0)
 	{
+		size_t version = readFromBinStream<uint32_t>(is);
+		size_t M = readFromBinStream<uint32_t>(is);
+		size_t L = readFromBinStream<uint32_t>(is);
+		ChronoGramModel ret{ M, L };
+		ret.zBias = readFromBinStream<float>(is);
+		ret.zSlope = readFromBinStream<float>(is);
+		ret.vocabs.readFromFile(is);
+		size_t V = ret.vocabs.size();
+		ret.in.resize(M, L * V);
+		ret.out.resize(M, V);
+
+		readFromBinStream(is, ret.frequencies);
+		if (version == 1)
+		{
+			readFromBinStream(is, ret.in);
+			readFromBinStream(is, ret.out);
+		}
+		else
+		{
+			readFromBinStreamCompressed(is, ret.in);
+			readFromBinStreamCompressed(is, ret.out);
+		}
 		readFromBinStream(is, ret.zeta);
 		readFromBinStream(is, ret.lambda);
 		readFromBinStream(is, ret.timePadding);
 		ret.timePrior.resize(L);
 		readFromBinStream(is, ret.timePrior);
+		ret.buildTable();
+		ret.normalizeWordDist();
+		return ret;
 	}
-	catch (const exception& e)
+	else
 	{
-		ret.timePadding = 0;
-		ret.timePrior = VectorXf::Zero(L);
-		ret.timePrior[0] = 1;
-	}
+		is.seekg(pos);
+		size_t M = readFromBinStream<uint32_t>(is);
+		size_t L = readFromBinStream<uint32_t>(is);
+		ChronoGramModel ret{ M, L };
+		ret.zBias = readFromBinStream<float>(is);
+		ret.zSlope = readFromBinStream<float>(is);
+		ret.vocabs.readFromFile(is);
+		size_t V = ret.vocabs.size();
+		ret.in.resize(M, L * V);
+		ret.out.resize(M, V);
 
-	ret.buildTable();
-	ret.normalizeWordDist();
-	return ret;
+		readFromBinStream(is, ret.frequencies);
+		readFromBinStream(is, ret.in);
+		readFromBinStream(is, ret.out);
+
+		try
+		{
+			readFromBinStream(is, ret.zeta);
+			readFromBinStream(is, ret.lambda);
+			readFromBinStream(is, ret.timePadding);
+			ret.timePrior.resize(L);
+			readFromBinStream(is, ret.timePrior);
+		}
+		catch (const exception& e)
+		{
+			ret.timePadding = 0;
+			ret.timePrior = VectorXf::Zero(L);
+			ret.timePrior[0] = 1;
+		}
+		ret.buildTable();
+		ret.normalizeWordDist();
+		return ret;
+	}
 }
 
 float ChronoGramModel::getWordProbByTime(const std::string & word, float timePoint) const

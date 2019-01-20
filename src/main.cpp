@@ -29,6 +29,7 @@ struct Args
 	int nsQ = 8, initStep = 8;
 	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
 	float timeNegative = 1.f, fixedInit = 0;
+	bool compressed = false;
 };
 
 struct MultipleReader
@@ -111,6 +112,8 @@ int main(int argc, char* argv[])
 			("z,zeta", "", cxxopts::value<float>())
 			("lambda", "", cxxopts::value<float>())
 			("p,padding", "", cxxopts::value<float>())
+
+			("compressed", "Save as compressed", cxxopts::value<int>())
 			;
 
 		try
@@ -155,6 +158,7 @@ int main(int argc, char* argv[])
 			READ_OPT(minCnt, int);
 			READ_OPT(nsQ, int);
 			READ_OPT(initStep, int);
+			READ_OPT(compressed, int);
 
 			READ_OPT(eta, float);
 			READ_OPT(zeta, float);
@@ -239,7 +243,7 @@ int main(int argc, char* argv[])
 		{
 			cout << "Saving Model: " << args.save << endl;
 			ofstream ofs{ args.save, ios_base::binary };
-			tgm.saveModel(ofs);
+			tgm.saveModel(ofs, args.compressed);
 		}
 	}
 
