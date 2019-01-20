@@ -28,7 +28,7 @@ struct Args
 	int report = 100000;
 	int nsQ = 8, initStep = 8;
 	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
-	float timeNegative = 5.f;
+	float timeNegative = 1.f, fixedInit = 0;
 };
 
 struct MultipleReader
@@ -101,6 +101,7 @@ int main(int argc, char* argv[])
 			("e,epoch", "Number of Epoch", cxxopts::value<int>())
 			("n,negative", "Negative Sampling Size", cxxopts::value<int>())
 			("T,timeNegative", "Time Negative Weight", cxxopts::value<float>())
+			("F,fixedInit", "Fixed Initializing Weight", cxxopts::value<float>())
 			("b,batch", "Batch Docs Size", cxxopts::value<int>())
 			("t,minCnt", "Min Count Threshold of Word", cxxopts::value<int>())
 			("report", "", cxxopts::value<int>())
@@ -160,6 +161,7 @@ int main(int argc, char* argv[])
 			READ_OPT(lambda, float);
 			READ_OPT(padding, float);
 			READ_OPT(timeNegative, float);
+			READ_OPT(fixedInit, float);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -202,7 +204,7 @@ int main(int argc, char* argv[])
 		cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
 		cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << "\tLambda: " << args.lambda << endl;
-		cout << "Padding: " << tgm.getPadding() << "\tTime Negative Weight: " << args.timeNegative << endl;
+		cout << "Padding: " << tgm.getPadding() << "\tTime Negative Weight: " << args.timeNegative << "\tFixed Initializing Weight: " << args.fixedInit << endl;
 
 		cout << "Training Input: ";
 		for (auto& s : args.input)
@@ -228,8 +230,9 @@ int main(int argc, char* argv[])
 			}
 			cout << numFixedWords << " fixed words are loaded." << endl;
 		}
-		tgm.train(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.worker, args.window, .025f, args.batch,
-			args.epoch, args.report);
+		tgm.train(bind(&MultipleReader::operator(), &reader, placeholders::_1),
+			args.worker, args.window, args.fixedInit,
+			.025f, args.batch, args.epoch, args.report);
 
 		cout << "Finished in " << timer.getElapsed() << " sec" << endl;
 		if (!args.save.empty())

@@ -136,7 +136,10 @@ private:
 	float avgTimeSqNorm(size_t wv) const;
 	float avgTimePrior() const;
 
+	template<bool _Fixed = false>
 	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight);
+
+	template<bool _Fixed = false>
 	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
@@ -148,8 +151,12 @@ private:
 
 	void buildModel();
 	void buildTable();
+
+	template<bool _Fixed = false>
 	void trainVectors(const uint32_t* ws, size_t N, float timePoint,
 		size_t windowLen, float start_lr, size_t nEpoch, size_t report);
+
+	template<bool _Fixed = false>
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
 		size_t windowLen, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld);
 	void trainTimePrior(const float* ts, size_t N, float lr, size_t report);
@@ -218,7 +225,8 @@ public:
 	void buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt = 10);
 	bool addFixedWord(const std::string& word);
 	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
-		size_t windowLen = 4, float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
+		size_t windowLen = 4, float fixedInit = 0.f,
+		float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
 	float angleOfWord(const std::string& word, size_t step = 100) const;
