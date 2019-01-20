@@ -85,6 +85,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ClCompile Include="src\ChronoGramModel.cpp" />
+    <ClCompile Include="src\IOUtils.cpp" />
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
