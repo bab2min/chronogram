@@ -851,7 +851,8 @@ ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const std::vector<std
 }
 
 
-pair<float, float> ChronoGramModel::predictSentTime(const std::vector<std::string>& words, size_t windowLen, size_t nsQ, size_t initStep) const
+pair<float, float> ChronoGramModel::predictSentTime(const std::vector<std::string>& words, 
+	size_t windowLen, size_t nsQ, size_t initStep, float threshold) const
 {
 	auto evaluator = evaluateSent(words, windowLen, nsQ);
 	constexpr uint32_t SCALE = 0x80000000;
@@ -860,7 +861,7 @@ pair<float, float> ChronoGramModel::predictSentTime(const std::vector<std::strin
 	uint32_t maxP = 0;
 	for (size_t i = 0; i <= initStep; ++i)
 	{
-		auto t = evaluator.fg(i / (float)initStep);
+		auto t = evaluator.fg(i / (float)initStep * (1 - timePadding * 2) + timePadding);
 		auto m = (uint32_t)(SCALE * (float)i / initStep);
 		lls[m] = make_pair(get<0>(t), get<1>(t));
 		if (get<0>(t) > maxLL)
@@ -873,11 +874,11 @@ pair<float, float> ChronoGramModel::predictSentTime(const std::vector<std::strin
 	for (auto it = ++lls.begin(); it != lls.end(); ++it)
 	{
 		auto prevIt = prev(it);
-		if (it->first - prevIt->first < (uint32_t)(SCALE * 0.004f)) continue;
+		if (it->first - prevIt->first < (uint32_t)(SCALE * threshold)) continue;
 		if (prevIt->second.second < 0) continue;
 		if (it->second.second > 0) continue;
 		auto m = (prevIt->first + it->first) / 2;
-		auto t = evaluator.fg(m / (float)SCALE);
+		auto t = evaluator.fg(m / (float)SCALE * (1 - timePadding * 2) + timePadding);
 		lls.emplace(m, make_pair(get<0>(t), get<1>(t)));
 		it = prevIt;
 		if (get<0>(t) > maxLL)
@@ -887,12 +888,12 @@ pair<float, float> ChronoGramModel::predictSentTime(const std::vector<std::strin
 		}
 	}
 
-	return make_pair(unnormalizedTimePoint(maxP / (float)SCALE), maxLL);
+	return make_pair(unnormalizedTimePoint(maxP / (float)SCALE * (1 - timePadding * 2) + timePadding), maxLL);
 }
 
 vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<ReadResult(size_t)>& reader,
-	const function<void(EvalResult)>& writer,
-	size_t numWorkers, size_t windowLen, size_t nsQ, size_t initStep) const
+	const function<void(EvalResult)>& writer, size_t numWorkers, 
+	size_t windowLen, size_t nsQ, size_t initStep, float threshold) const
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
 	vector<EvalResult> ret;
@@ -923,7 +924,7 @@ vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<Rea
 		consume();
 		workers.enqueue([&, id](size_t tid, float time, vector<string> words)
 		{
-			auto p = predictSentTime(words, windowLen, nsQ, initStep);
+			auto p = predictSentTime(words, windowLen, nsQ, initStep, threshold);
 			lock_guard<mutex> l{ writeMtx };
 			res[id] = { time, p.first, p.second, p.second / 2 / windowLen / words.size(), (p.first - time) * zSlope };
 			readCnd.notify_all();

@@ -246,11 +246,11 @@ public:
 
 	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen, size_t nsQ = 16) const;
 	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, 
-		size_t windowLen, size_t nsQ = 16, size_t initStep = 8) const;
+		size_t windowLen, size_t nsQ = 16, size_t initStep = 8, float threshold = .0025f) const;
 
 	std::vector<EvalResult> evaluate(const std::function<ReadResult(size_t)>& reader, 
 		const std::function<void(EvalResult)>& writer,
-		size_t numWorkers, size_t windowLen, size_t nsQ, size_t initStep) const;
+		size_t numWorkers, size_t windowLen, size_t nsQ, size_t initStep, float threshold) const;
 
 	const std::vector<std::string>& getVocabs() const
 	{

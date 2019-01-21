@@ -28,7 +28,7 @@ struct Args
 	int report = 100000;
 	int nsQ = 8, initStep = 8;
 	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
-	float timeNegative = 1.f, fixedInit = 0;
+	float timeNegative = 1.f, fixedInit = 0, threshold = 0.025f;
 	bool compressed = true;
 };
 
@@ -112,6 +112,7 @@ int main(int argc, char* argv[])
 			("z,zeta", "", cxxopts::value<float>())
 			("lambda", "", cxxopts::value<float>())
 			("p,padding", "", cxxopts::value<float>())
+			("threshold", "", cxxopts::value<float>())
 
 			("compressed", "Save as compressed", cxxopts::value<int>(), "default = 1")
 			;
@@ -166,6 +167,7 @@ int main(int argc, char* argv[])
 			READ_OPT(padding, float);
 			READ_OPT(timeNegative, float);
 			READ_OPT(fixedInit, float);
+			READ_OPT(threshold, float);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -254,7 +256,7 @@ int main(int argc, char* argv[])
 		ifstream ifs{ args.eval };
 		if (args.result.empty()) args.result = args.eval + ".result";
 		ofstream ofs{ args.result };
-		float avgErr = 0;
+		float avgErr = 0, meanErr = 0;
 		size_t n = 0;
 		MultipleReader reader{ {args.eval} };
 		tgm.evaluate(bind(&MultipleReader::operator(), &reader, placeholders::_1), 
@@ -263,20 +265,24 @@ int main(int argc, char* argv[])
 			ofs << r.trueTime << "\t" << r.estimatedTime << "\t" << r.ll
 				<< "\t" << r.llPerWord << "\t" << r.normalizedErr << endl;
 			avgErr += pow(r.normalizedErr, 2);
+			meanErr += abs(r.normalizedErr);
 			n++;
-		}, args.worker, args.window, args.nsQ, args.initStep);
+		}, args.worker, args.window, args.nsQ, args.initStep, args.threshold);
 		
 		avgErr /= n;
+		meanErr /= n;
 		cout << "== Evaluating Result ==" << endl;
 		cout << "Running Time: " << timer.getElapsed() << "s" << endl;
 		cout << "Total Docs: " << n << endl;
 		cout << "Avg Squared Error: " << avgErr << endl;
 		cout << "Avg Error: " << sqrt(avgErr) << endl;
+		cout << "MAE: " << meanErr << endl;
 
 		ofs << "Running Time: " << timer.getElapsed() << "s" << endl;
 		ofs << "Total Docs: " << n << endl;
 		ofs << "Avg Squared Error: " << avgErr << endl;
 		ofs << "Avg Error: " << sqrt(avgErr) << endl;
+		ofs << "MAE: " << meanErr << endl;
 	}
 
 	string line;

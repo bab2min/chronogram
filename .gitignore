@@ -276,3 +276,7 @@ __pycache__/
 /t.cg
 /u.cg
 /u2.cg
+/train.pp.txt
+/m.cg
+/gold.pp.txt.result
+/gold.pp.txt
