@@ -29,7 +29,7 @@ struct Args
 	int nsQ = 8, initStep = 8;
 	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
 	float timeNegative = 1.f, fixedInit = 0;
-	bool compressed = false;
+	bool compressed = true;
 };
 
 struct MultipleReader
@@ -113,7 +113,7 @@ int main(int argc, char* argv[])
 			("lambda", "", cxxopts::value<float>())
 			("p,padding", "", cxxopts::value<float>())
 
-			("compressed", "Save as compressed", cxxopts::value<int>())
+			("compressed", "Save as compressed", cxxopts::value<int>(), "default = 1")
 			;
 
 		try
@@ -586,6 +586,7 @@ int main(int argc, char* argv[])
 			cout << "==== Most Similar Overall ====" << endl;
 			for (auto& p : tgm.mostSimilar(positivesO, negativesO, 20))
 			{
+				if (get<1>(p) <= 0) break;
 				cout << left << setw(12) << get<0>(p) << '\t' << get<1>(p) << endl;
 			}
 			cout << endl;

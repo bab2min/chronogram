@@ -144,7 +144,7 @@ float ChronoGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWe
 	d log (1-P(x|t)) / dx = -x * l
 	*/
 	auto gPos = makeTimedVector(x, lWeight);
-	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5);
+	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5f);
 	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-3;
 	pr += -avgTimeSqNorm(x) * lambda * timeNegativeWeight;
 
@@ -163,7 +163,7 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const Eigen::Ve
 	d log (1-P(x|t)) / dx = -x * l
 	*/
 	auto gPos = makeTimedVector(x, lWeight);
-	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5);
+	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5f);
 	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-3;
 	pr += -avgTimeSqNorm(x) * lambda * timeNegativeWeight;
 
@@ -176,8 +176,8 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const Eigen::Ve
 float ChronoGramModel::updateTimePrior(float lr, const Eigen::VectorXf & lWeight)
 {
 	float p = timePrior.dot(lWeight);
-	float pr = log(1 - exp(-p * p / 2) + 1e-5);
-	p /= exp(p * p / 2) - 1 + 1e-3;
+	float pr = log(1 - exp(-p * p / 2) + 1e-5f);
+	p /= exp(p * p / 2) - 1 + 1e-3f;
 	pr += -avgTimePrior() * timeNegativeWeight;
 	timePrior += p * lWeight * lr;
 	timePrior -= avgNegMatrix * timePrior * timeNegativeWeight * lr;
@@ -602,7 +602,7 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 			}
 		}
 		procCollection(true);
-		fprintf(stderr, "All vectors are initialized as fixed word embeddeings with ll %f\n", totalLL);
+		fprintf(stderr, "All vectors were initialized as fixed word embeddeings with ll %f\n", totalLL);
 	}
 	procWords = lastProcWords = 0;
 	totalLL = totalLLCnt = 0;
@@ -691,7 +691,8 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 	const vector<pair<string, float>>& negativeWords,
 	float searchingTimePoint, float m, size_t K) const
 {
-	constexpr float threshold = 0.5f;
+	constexpr float threshold = 0.4f;
+	constexpr float bias = 0.2f;
 	VectorXf vec = VectorXf::Zero(M);
 	const size_t V = vocabs.size();
 	unordered_set<size_t> uniqs;
@@ -702,10 +703,10 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		if (wv == (size_t)-1) return {};
 		VectorXf cf = makeCoef(L, normalizedTimePoint(p.second));
 		float tPrior = getTimePrior(cf);
-		VectorXf tv = makeTimedVector(wv, cf) + out.col(wv) * m;
+		VectorXf tv = makeTimedVector(wv, cf);
 		float wPrior = getWordProbByTime(wv, tv);
-		if (wPrior / tPrior < threshold) continue;
-		vec += tv;
+		if (wPrior / (tPrior + bias) < threshold) continue;
+		vec += tv * (1 - m) + out.col(wv) * m;
 		uniqs.emplace(wv);
 	}
 
@@ -715,10 +716,10 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		if (wv == (size_t)-1) return {};
 		VectorXf cf = makeCoef(L, normalizedTimePoint(p.second));
 		float tPrior = getTimePrior(cf);
-		VectorXf tv = makeTimedVector(wv, cf) + out.col(wv) * m;
+		VectorXf tv = makeTimedVector(wv, cf);
 		float wPrior = getWordProbByTime(wv, tv);
-		if (wPrior / tPrior < threshold) continue;
-		vec -= tv;
+		if (wPrior / (tPrior + bias) < threshold) continue;
+		vec -= tv * (1 - m) + out.col(wv) * m;
 		uniqs.emplace(wv);
 	}
 
@@ -733,14 +734,14 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 			sim(v) = -INFINITY;
 			continue;
 		}*/
-		VectorXf tv = makeTimedVector(v, coef) + out.col(v) * m;
+		VectorXf tv = makeTimedVector(v, coef);
 		float wPrior = getWordProbByTime(v, tv);
-		if (wPrior / tPrior < threshold)
+		if (wPrior / (tPrior + bias) < threshold)
 		{
 			sim[v] = make_pair(-INFINITY, wPrior / tPrior);
 			continue;
 		}
-		sim[v] = make_pair(tv.normalized().dot(vec), wPrior / tPrior);
+		sim[v] = make_pair((tv * (1 - m) + out.col(v) * m).normalized().dot(vec), wPrior / tPrior);
 	}
 
 	for (size_t k = 0; k < K; ++k)

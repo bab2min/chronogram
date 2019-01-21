@@ -123,7 +123,7 @@ private:
 	std::vector<float> unigramDist;
 	std::discrete_distribution<uint32_t> unigramTable;
 	size_t negativeSampleSize = 0;
-	float timeNegativeWeight = 5.f;
+	float timeNegativeWeight;
 
 	Timer timer;
 
@@ -167,7 +167,7 @@ private:
 	float getWordProbByTime(uint32_t w, float timePoint) const;
 public:
 	ChronoGramModel(size_t _M = 100, size_t _L = 6,
-		float _subsampling = 1e-4, size_t _negativeSampleSize = 5, float _timeNegativeWeight = 5.f,
+		float _subsampling = 1e-4f, size_t _negativeSampleSize = 5, float _timeNegativeWeight = 5.f,
 		float _eta = 1.f, float _zeta = .5f, float _lambda = .1f,
 		size_t seed = std::random_device()())
 		: M(_M), L(_L), subsampling(_subsampling), eta(_eta), zeta(_zeta), lambda(_lambda),
@@ -226,7 +226,7 @@ public:
 	bool addFixedWord(const std::string& word);
 	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
 		size_t windowLen = 4, float fixedInit = 0.f,
-		float start_lr = 0.025, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
+		float start_lr = .025f, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
 	float angleOfWord(const std::string& word, size_t step = 100) const;
