@@ -689,7 +689,7 @@ vector<tuple<string, float, float>> ChronoGramModel::nearestNeighbors(const stri
 vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 	const vector<pair<string, float>>& positiveWords,
 	const vector<pair<string, float>>& negativeWords,
-	float searchingTimePoint, size_t K) const
+	float searchingTimePoint, float m, size_t K) const
 {
 	constexpr float threshold = 0.5f;
 	VectorXf vec = VectorXf::Zero(M);
@@ -702,7 +702,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		if (wv == (size_t)-1) return {};
 		VectorXf cf = makeCoef(L, normalizedTimePoint(p.second));
 		float tPrior = getTimePrior(cf);
-		VectorXf tv = makeTimedVector(wv, cf);
+		VectorXf tv = makeTimedVector(wv, cf) + out.col(wv) * m;
 		float wPrior = getWordProbByTime(wv, tv);
 		if (wPrior / tPrior < threshold) continue;
 		vec += tv;
@@ -715,7 +715,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		if (wv == (size_t)-1) return {};
 		VectorXf cf = makeCoef(L, normalizedTimePoint(p.second));
 		float tPrior = getTimePrior(cf);
-		VectorXf tv = makeTimedVector(wv, cf);
+		VectorXf tv = makeTimedVector(wv, cf) + out.col(wv) * m;
 		float wPrior = getWordProbByTime(wv, tv);
 		if (wPrior / tPrior < threshold) continue;
 		vec -= tv;
@@ -733,7 +733,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 			sim(v) = -INFINITY;
 			continue;
 		}*/
-		VectorXf tv = makeTimedVector(v, coef);
+		VectorXf tv = makeTimedVector(v, coef) + out.col(v) * m;
 		float wPrior = getWordProbByTime(v, tv);
 		if (wPrior / tPrior < threshold)
 		{
@@ -937,11 +937,25 @@ vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<Rea
 	return ret;
 }
 
-MatrixXf ChronoGramModel::getEmbedding(const string & word) const
+MatrixXf ChronoGramModel::getEmbeddingMatrix(const string & word) const
 {
 	size_t wv = vocabs.get(word);
 	if (wv == (size_t)-1) return {};
 	return in.block(0, wv * L, M, L);
+}
+
+VectorXf ChronoGramModel::getEmbedding(const string & word) const
+{
+	size_t wv = vocabs.get(word);
+	if (wv == (size_t)-1) return {};
+	return out.col(wv);
+}
+
+VectorXf ChronoGramModel::getEmbedding(const string & word, float timePoint) const
+{
+	size_t wv = vocabs.get(word);
+	if (wv == (size_t)-1) return {};
+	return makeTimedVector(wv, makeCoef(L, normalizedTimePoint(timePoint)));
 }
 
 void ChronoGramModel::saveModel(ostream & os, bool compressed) const

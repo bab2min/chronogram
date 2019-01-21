@@ -236,7 +236,7 @@ public:
 	std::vector<std::tuple<std::string, float, float>> mostSimilar(
 		const std::vector<std::pair<std::string, float>>& positiveWords,
 		const std::vector<std::pair<std::string, float>>& negativeWords,
-		float searchingTimePoint, size_t K = 10) const;
+		float searchingTimePoint, float m = 0, size_t K = 10) const;
 	std::vector<std::tuple<std::string, float>> mostSimilar(
 		const std::vector<std::string>& positiveWords,
 		const std::vector<std::string>& negativeWords,
@@ -257,7 +257,9 @@ public:
 		return vocabs.getKeys();
 	}
 
-	Eigen::MatrixXf getEmbedding(const std::string& word) const;
+	Eigen::MatrixXf getEmbeddingMatrix(const std::string& word) const;
+	Eigen::VectorXf getEmbedding(const std::string& word) const;
+	Eigen::VectorXf getEmbedding(const std::string& word, float timePoint) const;
 
 	void saveModel(std::ostream& os, bool compressed = true) const;
 	static ChronoGramModel loadModel(std::istream& is);

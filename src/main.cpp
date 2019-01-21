@@ -377,21 +377,44 @@ int main(int argc, char* argv[])
 		}
 		else if (line[0] == '#') // get embedding
 		{
+			vector<pair<string, float>> words;
+			pair<string, float>* lastInput = nullptr;
 			stringstream iss{ line.substr(1) };
 			istream_iterator<string> wBegin{ iss }, wEnd{};
-			vector<string> words{ wBegin, wEnd };
-			for (auto& w : words)
+			for (; wBegin != wEnd; ++wBegin)
 			{
-				auto mat = tgm.getEmbedding(w);
-				for (size_t i = 0; i < mat.cols(); ++i)
+				auto word = *wBegin;
+				if (word[0] == '@')
 				{
-					//cout << setprecision(3);
-					for (size_t j = 0; j < mat.rows(); ++j)
+					float t = stof(word.substr(1));
+					if (t < tgm.getMinPoint() || t > tgm.getMaxPoint())
 					{
-						cout << mat(j, i) << ", ";
+						cout << "Out of time range [" << tgm.getMinPoint() << ", " << tgm.getMaxPoint() << "]" << endl;
 					}
-					cout << endl;
+
+					if (lastInput)
+					{
+						lastInput->second = t;
+						lastInput = nullptr;
+					}
 				}
+				else
+				{
+					words.emplace_back(word, -INFINITY);
+					lastInput = &words.back();
+				}
+			}
+			for(auto& w : words)
+			{
+				auto vec = isfinite(w.second) 
+					? tgm.getEmbedding(w.first, w.second)
+					: tgm.getEmbedding(w.first);
+				printf("[");
+				for (size_t i = 0; i < vec.size(); ++i)
+				{
+					printf("%.3f, ", vec(i));
+				}
+				printf("]\n");
 			}
 		}
 		else if (line[0] == '$') // similarity between two word
@@ -435,6 +458,68 @@ int main(int argc, char* argv[])
 				cout << "Overall similarity between '" << words[0].first << "' and '" << words[1].first
 					<< "' : " << tgm.similarity(words[0].first,words[1].first) << endl;
 			}
+		}
+		else if (line[0] == '%') // find most similar word using mixed vector
+		{
+			istringstream iss{ line.substr(1) };
+			float mixed = 0;
+			iss >> mixed;
+			vector<pair<string, float>> positives, negatives;
+			pair<string, float>* lastInput = nullptr;
+			istream_iterator<string> wBegin{ iss }, wEnd{};
+			float searchingTimePoint = tgm.getMinPoint();
+			bool sign = false;
+			for (; wBegin != wEnd; ++wBegin)
+			{
+				auto word = *wBegin;
+				if (word == "-")
+				{
+					sign = true;
+				}
+				else if (word == "+")
+				{
+					sign = false;
+				}
+				else if (word[0] == '@')
+				{
+					float t = stof(word.substr(1));
+					if (t < tgm.getMinPoint() || t > tgm.getMaxPoint())
+					{
+						cout << "Out of time range [" << tgm.getMinPoint() << ", " << tgm.getMaxPoint() << "]" << endl;
+					}
+
+					if (lastInput)
+					{
+						lastInput->second = t;
+						lastInput = nullptr;
+					}
+					else
+					{
+						searchingTimePoint = t;
+					}
+				}
+				else
+				{
+					(sign ? negatives : positives).emplace_back(word, searchingTimePoint);
+					lastInput = &(sign ? negatives : positives).back();
+					sign = false;
+				}
+			}
+
+			for (auto& p : positives)
+			{
+				float wp = tgm.getWordProbByTime(p.first, p.second);
+				float tp = tgm.getTimePrior(p.second);
+				cout << "P(@" << p.second << " | " << p.first << ") = " << wp << ",\tP(@" << p.second << ") = " << tp << endl;
+			}
+
+			cout << "==== Most Similar at " << searchingTimePoint << " ====" << endl;
+			for (auto& p : tgm.mostSimilar(positives, negatives, searchingTimePoint, mixed, 20))
+			{
+				if (get<1>(p) <= 0) break;
+				cout << left << setw(12) << get<0>(p) << '\t' << get<1>(p) << '\t' << get<2>(p) << endl;
+			}
+			cout << endl;
 		}
 		else // find most similar word
 		{
@@ -491,7 +576,7 @@ int main(int argc, char* argv[])
 			}
 
 			cout << "==== Most Similar at " << searchingTimePoint << " ====" << endl;
-			for (auto& p : tgm.mostSimilar(positives, negatives, searchingTimePoint, 20))
+			for (auto& p : tgm.mostSimilar(positives, negatives, searchingTimePoint, 0, 20))
 			{
 				if (get<1>(p) <= 0) break;
 				cout << left << setw(12) << get<0>(p) << '\t' << get<1>(p) << '\t' << get<2>(p) << endl;
