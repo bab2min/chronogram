@@ -1129,8 +1129,10 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
 	const size_t N = wordIds.size(), V = tgm.unigramDist.size();
 	auto tCoef = makeCoef(tgm.L, timePoint), tDCoef = makeDCoef(tgm.L, timePoint);
 
-	float ll = log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-5f) * timePriorWeight,
-		dll = 0;
+	float dot = tgm.timePrior.dot(tCoef);
+	float ddot = tgm.timePrior.block(1, 0, tgm.L - 1, 1).dot(tDCoef);
+	float ll = log(1 - exp(- pow(dot, 2)/ 2) + 1e-5f) * timePriorWeight,
+		dll = (dot * ddot / (exp(pow(dot, 2)) - 1 + 1e-5f) + dot * ddot) * timePriorWeight;
 	unordered_map<uint32_t, uint32_t> count;
 
 	for (size_t i = 0; i < N; ++i)

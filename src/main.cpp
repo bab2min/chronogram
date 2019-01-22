@@ -29,7 +29,9 @@ struct Args
 	int nsQ = 8, initStep = 8;
 	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
 	float timeNegative = 1.f, fixedInit = 0, threshold = 0.025f;
+	float timePrior = 0;
 	bool compressed = true;
+	bool semEval = false;
 };
 
 struct MultipleReader
@@ -113,8 +115,10 @@ int main(int argc, char* argv[])
 			("lambda", "", cxxopts::value<float>())
 			("p,padding", "", cxxopts::value<float>())
 			("threshold", "", cxxopts::value<float>())
+			("timePrior", "", cxxopts::value<float>())
 
 			("compressed", "Save as compressed", cxxopts::value<int>(), "default = 1")
+			("semEval", "Print SemEval2015 Task7 Result", cxxopts::value<int>()->implicit_value("1"))
 			;
 
 		try
@@ -159,7 +163,9 @@ int main(int argc, char* argv[])
 			READ_OPT(minCnt, int);
 			READ_OPT(nsQ, int);
 			READ_OPT(initStep, int);
+			
 			READ_OPT(compressed, int);
+			READ_OPT(semEval, int);
 
 			READ_OPT(eta, float);
 			READ_OPT(zeta, float);
@@ -168,6 +174,7 @@ int main(int argc, char* argv[])
 			READ_OPT(timeNegative, float);
 			READ_OPT(fixedInit, float);
 			READ_OPT(threshold, float);
+			READ_OPT(timePrior, float);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -252,11 +259,14 @@ int main(int argc, char* argv[])
 	if (!args.eval.empty())
 	{
 		cout << "Evaluating Time Prediction: " << args.eval << endl;
+		cout << "TimePriorWeight: " << args.timePrior << endl;
 		Timer timer;
 		ifstream ifs{ args.eval };
 		if (args.result.empty()) args.result = args.eval + ".result";
 		ofstream ofs{ args.result };
 		float avgErr = 0, meanErr = 0;
+		double score[3] = { 0, };
+		size_t correct[3] = { 0, };
 		size_t n = 0;
 		MultipleReader reader{ {args.eval} };
 		tgm.evaluate(bind(&MultipleReader::operator(), &reader, placeholders::_1), 
@@ -272,23 +282,52 @@ int main(int argc, char* argv[])
 				for (auto& w : r.words) cout << w << ' ';
 				cout << endl;
 			}
+
+			if (args.semEval)
+			{
+				static size_t span[3] = { 6, 12, 20 };
+				static double offsetScore[] = { 1, 0.9, 0.85, 0.8, 0.6, 0.5, 0.4, 0.2, 0.1, 0.01 };
+				float err = r.trueTime - r.estimatedTime;
+				for (size_t i = 0; i < 3; ++i)
+				{
+					auto s = span[i];
+					size_t offset = 0;
+					if (abs(err) <= s / 2)
+					{
+						++correct[i];
+					}
+					else
+					{
+						offset = (size_t)ceil((abs(err) - s / 2) / s);
+					}
+					score[i] += offsetScore[min(offset, (size_t)9)];
+				}
+			}
 			n++;
-		}, args.worker, args.window, args.nsQ, 0, args.initStep, args.threshold);
+		}, args.worker, args.window, args.nsQ, args.timePrior, args.initStep, args.threshold);
 		
 		avgErr /= n;
 		meanErr /= n;
-		cout << "== Evaluating Result ==" << endl;
-		cout << "Running Time: " << timer.getElapsed() << "s" << endl;
-		cout << "Total Docs: " << n << endl;
-		cout << "Avg Squared Error: " << avgErr << endl;
-		cout << "Avg Error: " << sqrt(avgErr) << endl;
-		cout << "MAE: " << meanErr << endl;
 
-		ofs << "Running Time: " << timer.getElapsed() << "s" << endl;
-		ofs << "Total Docs: " << n << endl;
-		ofs << "Avg Squared Error: " << avgErr << endl;
-		ofs << "Avg Error: " << sqrt(avgErr) << endl;
-		ofs << "MAE: " << meanErr << endl;
+		const auto printResult = [&](auto& os)
+		{
+			os << "Running Time: " << timer.getElapsed() << "s" << endl;
+			os << "Total Docs: " << n << endl;
+			os << "Avg Squared Error: " << avgErr << endl;
+			os << "Avg Error: " << sqrt(avgErr) << endl;
+			os << "MAE: " << meanErr << endl;
+
+			if (args.semEval)
+			{
+				os << "Correct (F, M, C): " << correct[0] << ", " << correct[1] << ", " << correct[2] << endl;
+				os << "Precision (F, M, C): " << correct[0] / (double)n << ", " << correct[1] / (double)n << ", " << correct[2] / (double)n << endl;
+				os << "Avg Score (F, M, C): " << score[0] / n << ", " << score[1] / n << ", " << score[2] / n << endl;
+			}
+		};
+
+		cout << "== Evaluating Result ==" << endl;
+		printResult(cout);
+		printResult(ofs);
 	}
 
 	string line;
@@ -356,7 +395,7 @@ int main(int argc, char* argv[])
 			istringstream iss{ line.substr(1) };
 			istream_iterator<string> wBegin{ iss }, wEnd{};
 			vector<string> words{ wBegin, wEnd };
-			auto evaluator = tgm.evaluateSent(words, args.window, 1);
+			auto evaluator = tgm.evaluateSent(words, args.window, args.nsQ, args.timePrior);
 			for (size_t i = 0; i <= args.initStep; ++i)
 			{
 				float z = tgm.getMinPoint() + (i / (float)args.initStep) * (tgm.getMaxPoint() - tgm.getMinPoint());
