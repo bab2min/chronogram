@@ -46,6 +46,7 @@ public:
 	class LLEvaluater
 	{
 		friend class ChronoGramModel;
+		float timePriorWeight;
 		size_t windowLen, nsQ;
 		std::vector<uint32_t> wordIds;
 		struct MixedVectorCoef
@@ -67,9 +68,11 @@ public:
 		const ChronoGramModel& tgm;
 		LLEvaluater(const ChronoGramModel& _tgm, size_t _windowLen,
 			size_t _nsQ, std::vector<uint32_t>&& _wordIds, 
-			std::unordered_map<uint32_t, MixedVectorCoef>&& _coefs)
+			std::unordered_map<uint32_t, MixedVectorCoef>&& _coefs,
+			float _timePriorWeight)
 			: windowLen(_windowLen), nsQ(_nsQ),
-			wordIds(_wordIds), coefs(_coefs), tgm(_tgm)
+			wordIds(_wordIds), coefs(_coefs), tgm(_tgm),
+			timePriorWeight(_timePriorWeight)
 		{}
 
 	public:
@@ -84,6 +87,7 @@ public:
 		float ll = 0;
 		float llPerWord = 0;
 		float normalizedErr = 0;
+		std::vector<std::string> words;
 	};
 
 private:
@@ -244,13 +248,16 @@ public:
 	float similarity(const std::string& word1, float time1, const std::string& word2, float time2) const;
 	float similarity(const std::string& word1, const std::string& word2) const;
 
-	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen, size_t nsQ = 16) const;
+	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen,
+		size_t nsQ = 16, float timePriorWeight = 0) const;
 	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, 
-		size_t windowLen, size_t nsQ = 16, size_t initStep = 8, float threshold = .0025f) const;
+		size_t windowLen, size_t nsQ = 16, float timePriorWeight = 0,
+		size_t initStep = 8, float threshold = .0025f) const;
 
 	std::vector<EvalResult> evaluate(const std::function<ReadResult(size_t)>& reader, 
 		const std::function<void(EvalResult)>& writer,
-		size_t numWorkers, size_t windowLen, size_t nsQ, size_t initStep, float threshold) const;
+		size_t numWorkers, size_t windowLen, size_t nsQ, float timePriorWeight,
+		size_t initStep, float threshold) const;
 
 	const std::vector<std::string>& getVocabs() const
 	{

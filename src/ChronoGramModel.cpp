@@ -800,7 +800,7 @@ vector<tuple<string, float>> ChronoGramModel::mostSimilar(
 	return top;
 }
 
-float ChronoGramModel::similarity(const std::string & word1, float time1, const std::string & word2, float time2) const
+float ChronoGramModel::similarity(const string & word1, float time1, const string & word2, float time2) const
 {
 	size_t wv1 = vocabs.get(word1), wv2 = vocabs.get(word2);
 	if (wv1 == (size_t)-1 || wv2 == (size_t)-1) return 0;
@@ -808,7 +808,7 @@ float ChronoGramModel::similarity(const std::string & word1, float time1, const 
 	return makeTimedVector(wv1, c1).normalized().dot(makeTimedVector(wv2, c2).normalized());
 }
 
-float ChronoGramModel::similarity(const std::string & word1, const std::string & word2) const
+float ChronoGramModel::similarity(const string & word1, const string & word2) const
 {
 	size_t wv1 = vocabs.get(word1), wv2 = vocabs.get(word2);
 	if (wv1 == (size_t)-1 || wv2 == (size_t)-1) return 0;
@@ -816,7 +816,8 @@ float ChronoGramModel::similarity(const std::string & word1, const std::string &
 }
 
 
-ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const std::vector<std::string>& words, size_t windowLen, size_t nsQ) const
+ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>& words, 
+	size_t windowLen, size_t nsQ, float timePriorWeight) const
 {
 	const size_t V = vocabs.size();
 	vector<uint32_t> wordIds;
@@ -847,14 +848,14 @@ ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const std::vector<std
 		if (nsQ) n = (n + 1) % nsQ;
 	}
 
-	return LLEvaluater(*this, windowLen, nsQ, move(wordIds), move(coefs));
+	return LLEvaluater(*this, windowLen, nsQ, move(wordIds), move(coefs), timePriorWeight);
 }
 
 
-pair<float, float> ChronoGramModel::predictSentTime(const std::vector<std::string>& words, 
-	size_t windowLen, size_t nsQ, size_t initStep, float threshold) const
+pair<float, float> ChronoGramModel::predictSentTime(const vector<string>& words, 
+	size_t windowLen, size_t nsQ, float timePriorWeight, size_t initStep, float threshold) const
 {
-	auto evaluator = evaluateSent(words, windowLen, nsQ);
+	auto evaluator = evaluateSent(words, windowLen, nsQ, timePriorWeight);
 	constexpr uint32_t SCALE = 0x80000000;
 	map<uint32_t, pair<float, float>> lls;
 	float maxLL = -INFINITY;
@@ -893,7 +894,8 @@ pair<float, float> ChronoGramModel::predictSentTime(const std::vector<std::strin
 
 vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<ReadResult(size_t)>& reader,
 	const function<void(EvalResult)>& writer, size_t numWorkers, 
-	size_t windowLen, size_t nsQ, size_t initStep, float threshold) const
+	size_t windowLen, size_t nsQ, float timePriorWeight,
+	size_t initStep, float threshold) const
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
 	vector<EvalResult> ret;
@@ -924,9 +926,10 @@ vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<Rea
 		consume();
 		workers.enqueue([&, id](size_t tid, float time, vector<string> words)
 		{
-			auto p = predictSentTime(words, windowLen, nsQ, initStep, threshold);
+			auto p = predictSentTime(words, windowLen, nsQ, timePriorWeight, initStep, threshold);
 			lock_guard<mutex> l{ writeMtx };
-			res[id] = { time, p.first, p.second, p.second / 2 / windowLen / words.size(), (p.first - time) * zSlope };
+			res[id] = { time, p.first, p.second, p.second / 2 / windowLen / words.size(), 
+				(p.first - time) * zSlope, move(words) };
 			readCnd.notify_all();
 		}, r.timePoint, move(r.words));
 	}
@@ -1077,7 +1080,7 @@ float ChronoGramModel::LLEvaluater::operator()(float timePoint) const
 {
 	const size_t N = wordIds.size(), V = tgm.unigramDist.size();
 	auto tCoef = makeCoef(tgm.L, timePoint);
-	float ll = 0;
+	float ll = log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-5f) * timePriorWeight;
 	unordered_map<uint32_t, uint32_t> count;
 
 	for (size_t i = 0; i < N; ++i)
@@ -1126,7 +1129,8 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
 	const size_t N = wordIds.size(), V = tgm.unigramDist.size();
 	auto tCoef = makeCoef(tgm.L, timePoint), tDCoef = makeDCoef(tgm.L, timePoint);
 
-	float ll = 0, dll = 0;
+	float ll = log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-5f) * timePriorWeight,
+		dll = 0;
 	unordered_map<uint32_t, uint32_t> count;
 
 	for (size_t i = 0; i < N; ++i)

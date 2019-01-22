@@ -266,8 +266,14 @@ int main(int argc, char* argv[])
 				<< "\t" << r.llPerWord << "\t" << r.normalizedErr << endl;
 			avgErr += pow(r.normalizedErr, 2);
 			meanErr += abs(r.normalizedErr);
+			if (abs(r.normalizedErr) >= 0.5)
+			{
+				cout << r.trueTime << "\t" << r.estimatedTime << "\t" << r.normalizedErr << "\t";
+				for (auto& w : r.words) cout << w << ' ';
+				cout << endl;
+			}
 			n++;
-		}, args.worker, args.window, args.nsQ, args.initStep, args.threshold);
+		}, args.worker, args.window, args.nsQ, 0, args.initStep, args.threshold);
 		
 		avgErr /= n;
 		meanErr /= n;
