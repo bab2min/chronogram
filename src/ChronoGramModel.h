@@ -66,13 +66,15 @@ public:
 
 		std::unordered_map<uint32_t, MixedVectorCoef> coefs;
 		const ChronoGramModel& tgm;
+		const std::function<float(float)>& timePrior;
 		LLEvaluater(const ChronoGramModel& _tgm, size_t _windowLen,
 			size_t _nsQ, std::vector<uint32_t>&& _wordIds, 
 			std::unordered_map<uint32_t, MixedVectorCoef>&& _coefs,
+			const std::function<float(float)>& _timePrior,
 			float _timePriorWeight)
 			: windowLen(_windowLen), nsQ(_nsQ),
 			wordIds(_wordIds), coefs(_coefs), tgm(_tgm),
-			timePriorWeight(_timePriorWeight)
+			timePrior(_timePrior), timePriorWeight(_timePriorWeight)
 		{}
 
 	public:
@@ -249,14 +251,14 @@ public:
 	float similarity(const std::string& word1, const std::string& word2) const;
 
 	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen,
-		size_t nsQ = 16, float timePriorWeight = 0) const;
+		size_t nsQ = 16, const std::function<float(float)>& timePrior = {}, float timePriorWeight = 0) const;
 	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, 
-		size_t windowLen, size_t nsQ = 16, float timePriorWeight = 0,
+		size_t windowLen, size_t nsQ = 16, const std::function<float(float)>& timePrior = {}, float timePriorWeight = 0,
 		size_t initStep = 8, float threshold = .0025f) const;
 
 	std::vector<EvalResult> evaluate(const std::function<ReadResult(size_t)>& reader, 
 		const std::function<void(EvalResult)>& writer,
-		size_t numWorkers, size_t windowLen, size_t nsQ, float timePriorWeight,
+		size_t numWorkers, size_t windowLen, size_t nsQ, const std::function<float(float)>& timePrior, float timePriorWeight,
 		size_t initStep, float threshold) const;
 
 	const std::vector<std::string>& getVocabs() const

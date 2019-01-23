@@ -20,7 +20,7 @@ using namespace std;
 
 struct Args
 {
-	string load, save, eval, result, fixed;
+	string load, save, eval, result, fixed, loadPrior;
 	vector<string> input;
 	int worker = 0, window = 4, dimension = 100;
 	int order = 5, epoch = 1, negative = 5;
@@ -116,6 +116,7 @@ int main(int argc, char* argv[])
 			("p,padding", "", cxxopts::value<float>())
 			("threshold", "", cxxopts::value<float>())
 			("timePrior", "", cxxopts::value<float>())
+			("loadPrior", "", cxxopts::value<string>())
 
 			("compressed", "Save as compressed", cxxopts::value<int>(), "default = 1")
 			("semEval", "Print SemEval2015 Task7 Result", cxxopts::value<int>()->implicit_value("1"))
@@ -146,6 +147,7 @@ int main(int argc, char* argv[])
 			READ_OPT(eval, string);
 			READ_OPT(result, string);
 			READ_OPT(fixed, string);
+			READ_OPT(loadPrior, string);
 
 			if (result.count("input")) args.input.emplace_back(result["input"].as<string>());
 			for (size_t i = 1; i < argc; ++i)
@@ -256,6 +258,34 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	map<float, float> priorMap;
+	function<float(float)> priorFunc = [&priorMap](float x)->float
+	{
+		auto it = priorMap.lower_bound(x);
+		if (it == priorMap.end()) return -INFINITY;
+		if (it->first == x) return it->second;
+		if (it == priorMap.begin()) return -INFINITY;
+		float nx = it->first, ny = it->second;
+		--it;
+		float px = it->first, py = it->second;
+		return py + (x - px) * (ny - py) / (nx - px);
+	};
+
+	if (!args.loadPrior.empty())
+	{
+		ifstream lpf{ args.loadPrior };
+		string line;
+		while (getline(lpf, line))
+		{
+			istringstream iss{ line };
+			float x = INFINITY, y = INFINITY;
+			iss >> x >> y;
+			if (!isfinite(x) || !isfinite(y)) continue;
+			priorMap.emplace(x, y);
+		}
+	}
+	if (priorMap.empty()) priorFunc = function<float(float)>{};
+
 	if (!args.eval.empty())
 	{
 		cout << "Evaluating Time Prediction: " << args.eval << endl;
@@ -304,7 +334,7 @@ int main(int argc, char* argv[])
 				}
 			}
 			n++;
-		}, args.worker, args.window, args.nsQ, args.timePrior, args.initStep, args.threshold);
+		}, args.worker, args.window, args.nsQ, priorFunc, args.timePrior, args.initStep, args.threshold);
 		
 		avgErr /= n;
 		meanErr /= n;
@@ -395,7 +425,7 @@ int main(int argc, char* argv[])
 			istringstream iss{ line.substr(1) };
 			istream_iterator<string> wBegin{ iss }, wEnd{};
 			vector<string> words{ wBegin, wEnd };
-			auto evaluator = tgm.evaluateSent(words, args.window, args.nsQ, args.timePrior);
+			auto evaluator = tgm.evaluateSent(words, args.window, args.nsQ, priorFunc, args.timePrior);
 			for (size_t i = 0; i <= args.initStep; ++i)
 			{
 				float z = tgm.getMinPoint() + (i / (float)args.initStep) * (tgm.getMaxPoint() - tgm.getMinPoint());

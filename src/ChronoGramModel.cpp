@@ -817,7 +817,7 @@ float ChronoGramModel::similarity(const string & word1, const string & word2) co
 
 
 ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>& words, 
-	size_t windowLen, size_t nsQ, float timePriorWeight) const
+	size_t windowLen, size_t nsQ, const function<float(float)>& timePrior, float timePriorWeight) const
 {
 	const size_t V = vocabs.size();
 	vector<uint32_t> wordIds;
@@ -848,14 +848,15 @@ ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>&
 		if (nsQ) n = (n + 1) % nsQ;
 	}
 
-	return LLEvaluater(*this, windowLen, nsQ, move(wordIds), move(coefs), timePriorWeight);
+	return LLEvaluater(*this, windowLen, nsQ, move(wordIds), move(coefs), timePrior, timePriorWeight);
 }
 
 
 pair<float, float> ChronoGramModel::predictSentTime(const vector<string>& words, 
-	size_t windowLen, size_t nsQ, float timePriorWeight, size_t initStep, float threshold) const
+	size_t windowLen, size_t nsQ, const function<float(float)>& timePrior, float timePriorWeight,
+	size_t initStep, float threshold) const
 {
-	auto evaluator = evaluateSent(words, windowLen, nsQ, timePriorWeight);
+	auto evaluator = evaluateSent(words, windowLen, nsQ, timePrior, timePriorWeight);
 	constexpr uint32_t SCALE = 0x80000000;
 	map<uint32_t, pair<float, float>> lls;
 	float maxLL = -INFINITY;
@@ -894,7 +895,7 @@ pair<float, float> ChronoGramModel::predictSentTime(const vector<string>& words,
 
 vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<ReadResult(size_t)>& reader,
 	const function<void(EvalResult)>& writer, size_t numWorkers, 
-	size_t windowLen, size_t nsQ, float timePriorWeight,
+	size_t windowLen, size_t nsQ, const function<float(float)>& timePrior, float timePriorWeight,
 	size_t initStep, float threshold) const
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
@@ -926,7 +927,7 @@ vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<Rea
 		consume();
 		workers.enqueue([&, id](size_t tid, float time, vector<string> words)
 		{
-			auto p = predictSentTime(words, windowLen, nsQ, timePriorWeight, initStep, threshold);
+			auto p = predictSentTime(words, windowLen, nsQ, timePrior, timePriorWeight, initStep, threshold);
 			lock_guard<mutex> l{ writeMtx };
 			res[id] = { time, p.first, p.second, p.second / 2 / windowLen / words.size(), 
 				(p.first - time) * zSlope, move(words) };
@@ -1080,7 +1081,12 @@ float ChronoGramModel::LLEvaluater::operator()(float timePoint) const
 {
 	const size_t N = wordIds.size(), V = tgm.unigramDist.size();
 	auto tCoef = makeCoef(tgm.L, timePoint);
-	float ll = log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-5f) * timePriorWeight;
+	auto defaultPrior = [&](float)->float
+	{
+		return log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-5f);
+	};
+
+	float ll = (timePrior ? timePrior : defaultPrior)(tgm.unnormalizedTimePoint(timePoint)) * timePriorWeight;
 	unordered_map<uint32_t, uint32_t> count;
 
 	for (size_t i = 0; i < N; ++i)
@@ -1128,10 +1134,14 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
 {
 	const size_t N = wordIds.size(), V = tgm.unigramDist.size();
 	auto tCoef = makeCoef(tgm.L, timePoint), tDCoef = makeDCoef(tgm.L, timePoint);
+	auto defaultPrior = [&](float)->float
+	{
+		return log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-5f);
+	};
 
 	float dot = tgm.timePrior.dot(tCoef);
 	float ddot = tgm.timePrior.block(1, 0, tgm.L - 1, 1).dot(tDCoef);
-	float ll = log(1 - exp(- pow(dot, 2)/ 2) + 1e-5f) * timePriorWeight,
+	float ll = (timePrior ? timePrior : defaultPrior)(tgm.unnormalizedTimePoint(timePoint)) * timePriorWeight,
 		dll = (dot * ddot / (exp(pow(dot, 2)) - 1 + 1e-5f) + dot * ddot) * timePriorWeight;
 	unordered_map<uint32_t, uint32_t> count;
 
