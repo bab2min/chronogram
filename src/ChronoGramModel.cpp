@@ -800,6 +800,28 @@ vector<tuple<string, float>> ChronoGramModel::mostSimilar(
 	return top;
 }
 
+vector<pair<string, float>> ChronoGramModel::calcShift(float time1, float time2, float m) const
+{
+	VectorXf coef1 = makeCoef(L, normalizedTimePoint(time1)),
+		coef2 = makeCoef(L, normalizedTimePoint(time2));
+	vector<pair<string, float>> ret;
+	const size_t V = vocabs.size();
+	for (size_t v = 0; v < V; ++v)
+	{
+		VectorXf v1 = makeTimedVector(v, coef1) * (1 - m) + out.col(v) * m;
+		VectorXf v2 = makeTimedVector(v, coef2) * (1 - m) + out.col(v) * m;
+		float sim = v1.normalized().dot(v2.normalized());
+		if (sim <= 0) continue;
+		ret.emplace_back(vocabs.getStr(v), sim);
+	}
+	
+	sort(ret.begin(), ret.end(), [](auto p1, auto p2)
+	{
+		return p1.second > p2.second;
+	});
+	return ret;
+}
+
 float ChronoGramModel::similarity(const string & word1, float time1, const string & word2, float time2) const
 {
 	size_t wv1 = vocabs.get(word1), wv2 = vocabs.get(word2);

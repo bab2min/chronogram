@@ -602,6 +602,24 @@ int main(int argc, char* argv[])
 			}
 			cout << endl;
 		}
+		else if (line[0] == '^')
+		{
+			istringstream iss{ line.substr(1) };
+			float time1 = 0, time2 = 0, m = 0;
+			iss >> time1 >> time2 >> m;
+			auto ret = tgm.calcShift(time1, time2, m);
+			cout << "Similarity between " << time1 << " and " << time2 << endl;
+			for (size_t i = 0; i < 20 && i < ret.size(); ++i)
+			{
+				cout << ret[i].first << "\t" << ret[i].second << endl;
+			}
+			cout << " ... " << endl;
+			for (size_t i = max(ret.size(), (size_t)20) - 20; i < ret.size(); ++i)
+			{
+				cout << ret[i].first << "\t" << ret[i].second << endl;
+			}
+			cout << endl;
+		}
 		else // find most similar word
 		{
 			vector<pair<string, float>> positives, negatives;
