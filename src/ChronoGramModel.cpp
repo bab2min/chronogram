@@ -800,18 +800,25 @@ vector<tuple<string, float>> ChronoGramModel::mostSimilar(
 	return top;
 }
 
-vector<pair<string, float>> ChronoGramModel::calcShift(float time1, float time2, float m) const
+vector<pair<string, float>> ChronoGramModel::calcShift(size_t minCnt, float time1, float time2, float m) const
 {
 	VectorXf coef1 = makeCoef(L, normalizedTimePoint(time1)),
 		coef2 = makeCoef(L, normalizedTimePoint(time2));
 	vector<pair<string, float>> ret;
 	const size_t V = vocabs.size();
+	float tPrior1 = getTimePrior(coef1);
+	float tPrior2 = getTimePrior(coef2);
+	constexpr float threshold = 0.4f;
+	constexpr float bias = 0.2f;
+
 	for (size_t v = 0; v < V; ++v)
 	{
-		VectorXf v1 = makeTimedVector(v, coef1) * (1 - m) + out.col(v) * m;
-		VectorXf v2 = makeTimedVector(v, coef2) * (1 - m) + out.col(v) * m;
-		float sim = v1.normalized().dot(v2.normalized());
-		if (sim <= 0) continue;
+		if (frequencies[v] < minCnt) continue;
+		VectorXf v1 = makeTimedVector(v, coef1);
+		VectorXf v2 = makeTimedVector(v, coef2);
+		if (getWordProbByTime(v, v1) / (tPrior1 + bias) < threshold) continue;
+		if (getWordProbByTime(v, v2) / (tPrior2 + bias) < threshold) continue;
+		float sim = (v1 * (1 - m) + out.col(v) * m).normalized().dot((v2 * (1 - m) + out.col(v) * m).normalized());
 		ret.emplace_back(vocabs.getStr(v), sim);
 	}
 	
@@ -1097,6 +1104,13 @@ float ChronoGramModel::getWordProbByTime(const std::string & word, float timePoi
 float ChronoGramModel::getTimePrior(float timePoint) const
 {
 	return getTimePrior(makeCoef(L, normalizedTimePoint(timePoint)));
+}
+
+size_t ChronoGramModel::getWordCount(const std::string & word) const
+{
+	size_t wv = vocabs.get(word);
+	if (wv == (size_t)-1) return 0;
+	return frequencies[wv];
 }
 
 float ChronoGramModel::LLEvaluater::operator()(float timePoint) const

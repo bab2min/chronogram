@@ -447,6 +447,7 @@ int main(int argc, char* argv[])
 			}
 			else
 			{
+				cout << "Total count of " << words[0] << " : " << tgm.getWordCount(words[0]) << endl;
 				for (size_t i = 0; i <= args.initStep; ++i)
 				{
 					float z = tgm.getMinPoint() + (i / (float)args.initStep) * (tgm.getMaxPoint() - tgm.getMinPoint());
@@ -605,16 +606,17 @@ int main(int argc, char* argv[])
 		else if (line[0] == '^')
 		{
 			istringstream iss{ line.substr(1) };
+			size_t minCnt = 100;
 			float time1 = 0, time2 = 0, m = 0;
-			iss >> time1 >> time2 >> m;
-			auto ret = tgm.calcShift(time1, time2, m);
-			cout << "Similarity between " << time1 << " and " << time2 << endl;
-			for (size_t i = 0; i < 20 && i < ret.size(); ++i)
+			iss >> minCnt >> time1 >> time2 >> m;
+			auto ret = tgm.calcShift(minCnt, time1, time2, m);
+			cout << "== Similarity between " << time1 << " and " << time2 << " ==" << endl;
+			for (size_t i = 0; i < 10 && i < ret.size(); ++i)
 			{
 				cout << ret[i].first << "\t" << ret[i].second << endl;
 			}
-			cout << " ... " << endl;
-			for (size_t i = max(ret.size(), (size_t)20) - 20; i < ret.size(); ++i)
+			cout << "  ...  " << endl;
+			for (size_t i = max(ret.size(), (size_t)30) - 30; i < ret.size(); ++i)
 			{
 				cout << ret[i].first << "\t" << ret[i].second << endl;
 			}

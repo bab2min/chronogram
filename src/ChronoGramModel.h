@@ -247,7 +247,7 @@ public:
 		const std::vector<std::string>& positiveWords,
 		const std::vector<std::string>& negativeWords,
 		size_t K = 10) const;
-	std::vector<std::pair<std::string, float>> calcShift(float time1, float time2, float m = 0) const;
+	std::vector<std::pair<std::string, float>> calcShift(size_t minCnt, float time1, float time2, float m = 0) const;
 	float similarity(const std::string& word1, float time1, const std::string& word2, float time2) const;
 	float similarity(const std::string& word1, const std::string& word2) const;
 
@@ -286,6 +286,7 @@ public:
 	size_t getM() const { return M; }
 
 	size_t getTotalWords() const { return std::accumulate(frequencies.begin(), frequencies.end(), 0); }
+	size_t getWordCount(const std::string& word) const;
 
 	float getZeta() const { return zeta; }
 	float getLambda() const { return lambda; }
