@@ -883,13 +883,14 @@ ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>&
 
 pair<float, float> ChronoGramModel::predictSentTime(const vector<string>& words, 
 	size_t windowLen, size_t nsQ, const function<float(float)>& timePrior, float timePriorWeight,
-	size_t initStep, float threshold) const
+	size_t initStep, float threshold, std::vector<float>* llOutput) const
 {
 	auto evaluator = evaluateSent(words, windowLen, nsQ, timePrior, timePriorWeight);
 	constexpr uint32_t SCALE = 0x80000000;
 	map<uint32_t, pair<float, float>> lls;
 	float maxLL = -INFINITY;
 	uint32_t maxP = 0;
+	if (llOutput) llOutput->clear();
 	for (size_t i = 0; i <= initStep; ++i)
 	{
 		auto t = evaluator.fg(i / (float)initStep * (1 - timePadding * 2) + timePadding);
@@ -900,6 +901,7 @@ pair<float, float> ChronoGramModel::predictSentTime(const vector<string>& words,
 			maxP = m;
 			maxLL = get<0>(t);
 		}
+		if (llOutput) llOutput->emplace_back(get<0>(t));
 	}
 
 	for (auto it = ++lls.begin(); it != lls.end(); ++it)
@@ -956,10 +958,11 @@ vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<Rea
 		consume();
 		workers.enqueue([&, id](size_t tid, float time, vector<string> words)
 		{
-			auto p = predictSentTime(words, windowLen, nsQ, timePrior, timePriorWeight, initStep, threshold);
+			vector<float> lls;
+			auto p = predictSentTime(words, windowLen, nsQ, timePrior, timePriorWeight, initStep, threshold, &lls);
 			lock_guard<mutex> l{ writeMtx };
 			res[id] = { time, p.first, p.second, p.second / 2 / windowLen / words.size(), 
-				(p.first - time) * zSlope, move(words) };
+				(p.first - time) * zSlope, move(words), move(lls) };
 			readCnd.notify_all();
 		}, r.timePoint, move(r.words));
 	}

@@ -90,6 +90,7 @@ public:
 		float llPerWord = 0;
 		float normalizedErr = 0;
 		std::vector<std::string> words;
+		std::vector<float> lls;
 	};
 
 private:
@@ -255,7 +256,7 @@ public:
 		size_t nsQ = 16, const std::function<float(float)>& timePrior = {}, float timePriorWeight = 0) const;
 	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, 
 		size_t windowLen, size_t nsQ = 16, const std::function<float(float)>& timePrior = {}, float timePriorWeight = 0,
-		size_t initStep = 8, float threshold = .0025f) const;
+		size_t initStep = 8, float threshold = .0025f, std::vector<float>* llOutput = nullptr) const;
 
 	std::vector<EvalResult> evaluate(const std::function<ReadResult(size_t)>& reader, 
 		const std::function<void(EvalResult)>& writer,

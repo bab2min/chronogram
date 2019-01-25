@@ -20,7 +20,7 @@ using namespace std;
 
 struct Args
 {
-	string load, save, eval, result, fixed, loadPrior;
+	string load, save, eval, result, llSave, fixed, loadPrior;
 	vector<string> input;
 	int worker = 0, window = 4, dimension = 100;
 	int order = 5, epoch = 1, negative = 5;
@@ -93,6 +93,7 @@ int main(int argc, char* argv[])
 			("v,save", "Save Model File", cxxopts::value<string>(), "Model file path to be saved")
 			("eval", "Evaluation set File", cxxopts::value<string>(), "Evaluation set file path")
 			("result", "Evaluation Result File", cxxopts::value<string>(), "Evaluation result file path")
+			("llSave", "Save log likelihoods of evaluation", cxxopts::value<string>())
 			("f,fixed", "Fixed Word List File", cxxopts::value<string>())
 			("h,help", "Help")
 			("version", "Version")
@@ -148,6 +149,7 @@ int main(int argc, char* argv[])
 			READ_OPT(result, string);
 			READ_OPT(fixed, string);
 			READ_OPT(loadPrior, string);
+			READ_OPT(llSave, string);
 
 			if (result.count("input")) args.input.emplace_back(result["input"].as<string>());
 			for (size_t i = 1; i < argc; ++i)
@@ -294,6 +296,12 @@ int main(int argc, char* argv[])
 		ifstream ifs{ args.eval };
 		if (args.result.empty()) args.result = args.eval + ".result";
 		ofstream ofs{ args.result };
+		ofstream ollfs;
+		if (!args.llSave.empty())
+		{
+			ollfs = ofstream{ args.llSave };
+		}
+
 		float avgErr = 0, meanErr = 0;
 		double score[3] = { 0, };
 		size_t correct[3] = { 0, };
@@ -311,6 +319,17 @@ int main(int argc, char* argv[])
 				cout << r.trueTime << "\t" << r.estimatedTime << "\t" << r.normalizedErr << "\t";
 				for (auto& w : r.words) cout << w << ' ';
 				cout << endl;
+			}
+
+			if (ollfs)
+			{
+				size_t n = 0;
+				for (auto ll : r.lls)
+				{
+					if (n++) ollfs << '\t';
+					ollfs << ll;
+				}
+				ollfs << endl;
 			}
 
 			if (args.semEval)
