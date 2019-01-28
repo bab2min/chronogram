@@ -28,10 +28,13 @@ struct Args
 	int report = 100000;
 	int nsQ = 8, initStep = 8;
 	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
-	float timeNegative = 1.f, fixedInit = 0, threshold = 0.025f;
+	float timeNegative = 1.f, fixedInit = 0, threshold = 0.0025f;
 	float timePrior = 0;
 	bool compressed = true;
 	bool semEval = false;
+
+	string evalShift, shiftMetric;
+	float mixed = 0, timeA = INFINITY, timeB = INFINITY;
 };
 
 struct MultipleReader
@@ -83,21 +86,14 @@ int main(int argc, char* argv[])
 	try
 	{
 		cxxopts::Options options("chronogram", "Diachronic Word Embeddings");
-		/*options
-			.positional_help("[mode]")
-			.show_positional_help();
-		*/
+
 		options.add_options()
 			("i,input", "Input File", cxxopts::value<string>(), "Input file path that contains documents per line")
 			("l,load", "Load Model File", cxxopts::value<string>(), "Model file path to be loaded")
 			("v,save", "Save Model File", cxxopts::value<string>(), "Model file path to be saved")
-			("eval", "Evaluation set File", cxxopts::value<string>(), "Evaluation set file path")
-			("result", "Evaluation Result File", cxxopts::value<string>(), "Evaluation result file path")
-			("llSave", "Save log likelihoods of evaluation", cxxopts::value<string>())
 			("f,fixed", "Fixed Word List File", cxxopts::value<string>())
 			("h,help", "Help")
 			("version", "Version")
-
 			("w,worker", "Number of Workes", cxxopts::value<int>(), "The number of workers(thread) for inferencing model, default value is 0 which means the number of cores in system")
 			("W,window", "Size of Window", cxxopts::value<int>())
 			("d,dimension", "Embedding Dimension", cxxopts::value<int>())
@@ -109,18 +105,32 @@ int main(int argc, char* argv[])
 			("b,batch", "Batch Docs Size", cxxopts::value<int>())
 			("t,minCnt", "Min Count Threshold of Word", cxxopts::value<int>())
 			("report", "", cxxopts::value<int>())
-			("nsQ", "", cxxopts::value<int>())
-			("initStep", "", cxxopts::value<int>())
 			("eta", "", cxxopts::value<float>())
 			("z,zeta", "", cxxopts::value<float>())
 			("lambda", "", cxxopts::value<float>())
 			("p,padding", "", cxxopts::value<float>())
-			("threshold", "", cxxopts::value<float>())
-			("timePrior", "", cxxopts::value<float>())
-			("loadPrior", "", cxxopts::value<string>())
 
 			("compressed", "Save as compressed", cxxopts::value<int>(), "default = 1")
 			("semEval", "Print SemEval2015 Task7 Result", cxxopts::value<int>()->implicit_value("1"))
+			;
+
+		options.add_options("Text Dating")
+			("eval", "Evaluation set File", cxxopts::value<string>(), "Evaluation set file path")
+			("result", "Evaluation Result File", cxxopts::value<string>(), "Evaluation result file path")
+			("llSave", "Save log likelihoods of evaluation", cxxopts::value<string>())
+			("nsQ", "", cxxopts::value<int>())
+			("initStep", "", cxxopts::value<int>())
+			("threshold", "", cxxopts::value<float>())
+			("timePrior", "", cxxopts::value<float>())
+			("loadPrior", "", cxxopts::value<string>())
+			;
+
+		options.add_options("Semantic Shift")
+			("evalShift", "File to be evaluate semantic shift", cxxopts::value<string>())
+			("mixed", "mixing factor of U and V", cxxopts::value<float>())
+			("timeA", "", cxxopts::value<float>())
+			("timeB", "", cxxopts::value<float>())
+			("shiftMetric", "", cxxopts::value<string>())
 			;
 
 		try
@@ -179,6 +189,12 @@ int main(int argc, char* argv[])
 			READ_OPT(fixedInit, float);
 			READ_OPT(threshold, float);
 			READ_OPT(timePrior, float);
+
+			READ_OPT(evalShift, string);
+			READ_OPT(timeA, float);
+			READ_OPT(timeB, float);
+			READ_OPT(mixed, float);
+			READ_OPT(shiftMetric, string);
 			
 			if (args.load.empty() && args.input.empty())
 			{
@@ -188,7 +204,7 @@ int main(int argc, char* argv[])
 		catch (const cxxopts::OptionException& e)
 		{
 			cout << "error parsing options: " << e.what() << endl;
-			cout << options.help({ "" }) << endl;
+			cout << options.help({ "", "Text Dating", "Semantic Shift" }) << endl;
 			return -1;
 		}
 
@@ -260,6 +276,34 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	if (!args.evalShift.empty())
+	{
+		if (!isfinite(args.timeA)) args.timeA = tgm.getMinPoint();
+		if (!isfinite(args.timeB)) args.timeB = tgm.getMaxPoint();
+
+		ifstream ifs{ args.evalShift };
+		string line;
+		cout << "== Calculating semantic shift : " << args.evalShift 
+			<< " between " << args.timeA << " and " << args.timeB << " ==" << endl;
+		while (getline(ifs, line))
+		{
+			auto v = tgm.getEmbedding(line);
+			auto u1 = tgm.getEmbedding(line, args.timeA), u2 = tgm.getEmbedding(line, args.timeB);
+			float s;
+			if (args.shiftMetric == "l2")
+			{
+				s = (u1 - u2).norm();
+			}
+			else
+			{
+				s = (v * args.mixed + u1 * (1 - args.mixed)).normalized().dot(
+					(v * args.mixed + u2 * (1 - args.mixed)).normalized());
+			}
+			cout << line << '\t' << s << endl;
+		}
+		cout << endl;
+	}
+
 	map<float, float> priorMap;
 	function<float(float)> priorFunc = [&priorMap](float x)->float
 	{
@@ -300,6 +344,12 @@ int main(int argc, char* argv[])
 		if (!args.llSave.empty())
 		{
 			ollfs = ofstream{ args.llSave };
+			for (size_t i = 0; i <= args.initStep; ++i)
+			{
+				if (i) ollfs << '\t';
+				ollfs << tgm.getMinPoint() + (tgm.getMaxPoint() - tgm.getMinPoint()) * i / args.initStep;
+			}
+			ollfs << endl;
 		}
 
 		float avgErr = 0, meanErr = 0;
