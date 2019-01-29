@@ -672,24 +672,34 @@ int main(int argc, char* argv[])
 			}
 			cout << endl;
 		}
-		else if (line[0] == '^')
+		else if (line[0] == '^') // calculate shift of words
 		{
 			istringstream iss{ line.substr(1) };
-			size_t minCnt = 100;
+			size_t minCnt = 100, show = 40;
 			float time1 = 0, time2 = 0, m = 0;
-			iss >> minCnt >> time1 >> time2 >> m;
+			iss >> minCnt >> time1 >> time2 >> m >> show;
 			auto ret = tgm.calcShift(minCnt, time1, time2, m);
-			cout << "== Similarity between " << time1 << " and " << time2 << " ==" << endl;
+			cout << "== Shift between " << time1 << " and " << time2 << " ==" << endl;
 			for (size_t i = 0; i < 10 && i < ret.size(); ++i)
 			{
 				cout << ret[i].first << "\t" << ret[i].second << endl;
 			}
 			cout << "  ...  " << endl;
-			for (size_t i = max(ret.size(), (size_t)30) - 30; i < ret.size(); ++i)
+			for (size_t i = max(ret.size(), (size_t)show) - show; i < ret.size(); ++i)
 			{
 				cout << ret[i].first << "\t" << ret[i].second << endl;
 			}
 			cout << endl;
+		}
+		else if (line[0] == '&')
+		{
+			istringstream iss{ line.substr(1) };
+			float m = 0, time = 0;
+			string src, t;
+			vector<string> targets;
+			iss >> m >> time >> src;
+			while (iss >> t) targets.emplace_back(t);
+			cout << "== Sum of similarities from " << src << " : " << tgm.sumSimilarity(src, targets, time, m) << endl;
 		}
 		else // find most similar word
 		{
