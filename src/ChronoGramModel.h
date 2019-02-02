@@ -229,7 +229,7 @@ public:
 		return *this;
 	}
 
-	void buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt = 10);
+	void buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt = 10, size_t numWorkers = 0);
 	bool addFixedWord(const std::string& word);
 	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
 		size_t windowLen = 4, float fixedInit = 0.f,

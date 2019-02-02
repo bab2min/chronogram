@@ -17,7 +17,7 @@ modified by bab2min to have additional parameter threadId
 
 class ThreadPool {
 public:
-	ThreadPool(size_t);
+	ThreadPool(size_t, size_t maxQueued = 0);
 	template<class F, class... Args>
 	auto enqueue(F&& f, Args&&... args)
 		->std::future<typename std::result_of<F(size_t, Args...)>::type>;
@@ -32,13 +32,14 @@ private:
 
 	// synchronization
 	std::mutex queue_mutex;
-	std::condition_variable condition;
+	std::condition_variable condition, inputCnd;
+	size_t maxQueued;
 	bool stop;
 };
 
 // the constructor just launches some amount of workers
-inline ThreadPool::ThreadPool(size_t threads)
-	: stop(false)
+inline ThreadPool::ThreadPool(size_t threads, size_t _maxQueued)
+	: stop(false), maxQueued(_maxQueued)
 {
 	for (size_t i = 0; i < threads; ++i)
 		workers.emplace_back([this, i]
@@ -53,6 +54,7 @@ inline ThreadPool::ThreadPool(size_t threads)
 				if (this->stop && this->tasks.empty()) return;
 				task = std::move(this->tasks.front());
 				this->tasks.pop();
+				if (this->maxQueued) this->inputCnd.notify_all();
 			}
 			//std::cout << "Start #" << i << std::endl;
 			task(i);
@@ -77,7 +79,10 @@ auto ThreadPool::enqueue(F&& f, Args&&... args)
 
 		// don't allow enqueueing after stopping the pool
 		if (stop) throw std::runtime_error("enqueue on stopped ThreadPool");
-
+		if (maxQueued && tasks.size() >= maxQueued)
+		{
+			inputCnd.wait(lock, [&]() { return tasks.size() < maxQueued; });
+		}
 		tasks.emplace([task](size_t id) { (*task)(id); });
 	}
 	condition.notify_one();

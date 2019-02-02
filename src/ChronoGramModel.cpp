@@ -405,49 +405,41 @@ float ChronoGramModel::getWordProbByTime(uint32_t w, float timePoint) const
 }
 
 
-void ChronoGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt)
+void ChronoGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt, size_t numWorkers)
 {
+	if (!numWorkers) numWorkers = thread::hardware_concurrency();
+
 	float minT = INFINITY, maxT = -INFINITY;
-	VocabCounter vc;
-	if (thread::hardware_concurrency() > 1)
+	unordered_map<string, uint32_t> counter;
+	if (numWorkers > 1)
 	{
-		bool stop = false;
-		mutex inputMtx;
-		condition_variable inputCnd;
-		queue<vector<string>> workItems;
-		thread counter{ [&]()
+		vector<unordered_map<string, uint32_t>> counters(numWorkers - 1);
 		{
-			while (!stop)
+			ThreadPool workers(numWorkers - 1, (numWorkers - 1) * 16);
+			vector<string> words;
+			for (size_t id = 0; ; ++id)
 			{
-				vector<string> item;
+				auto res = reader(id);
+				if (res.stop) break;
+				if (res.words.empty()) continue;
+				minT = min(res.timePoint, minT);
+				maxT = max(res.timePoint, maxT);
+				words.insert(words.end(), make_move_iterator(res.words.begin()), make_move_iterator(res.words.end()));
+				if (words.size() > 250)
 				{
-					unique_lock<mutex> l{ inputMtx };
-					inputCnd.wait(l, [&]() {return stop || !workItems.empty(); });
-					if (stop && workItems.empty()) return;
-					item = move(workItems.front());
-					workItems.pop();
+					workers.enqueue([&](size_t tId, const vector<string>& words)
+					{
+						for (auto& w : words) ++counters[tId][w];
+					}, move(words));
 				}
-				vc.update(item.begin(), item.end(),
-					VocabCounter::defaultTest, VocabCounter::defaultTrans);
-				inputCnd.notify_all();
 			}
-		} };
-		for (size_t id = 0; ; ++id)
-		{
-			auto res = reader(id);
-			if (res.stop) break;
-			if (res.words.empty()) continue;
-			minT = min(res.timePoint, minT);
-			maxT = max(res.timePoint, maxT);
-			{
-				unique_lock<mutex> l(inputMtx);
-				if(workItems.size() >= 4) inputCnd.wait(l, [&]() { return workItems.size() < 4; });
-				workItems.emplace(move(res.words));
-			}
-			inputCnd.notify_all();
+			for (auto& w : words) ++counters[0][w];
 		}
-		stop = true;
-		counter.join();
+		counter = move(counters[0]);
+		for (size_t i = 1; i < numWorkers - 1; ++i)
+		{
+			for (auto& p : counters[i]) counter[p.first] += p.second;
+		}
 	}
 	else
 	{
@@ -458,16 +450,16 @@ void ChronoGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader
 			if (res.words.empty()) continue;
 			minT = min(res.timePoint, minT);
 			maxT = max(res.timePoint, maxT);
-			vc.update(res.words.begin(), res.words.end(), VocabCounter::defaultTest, VocabCounter::defaultTrans);
+			for (auto& w : res.words) ++counter[w];
 		}
 	}
 	zBias = minT;
 	zSlope = minT == maxT ? 1 : 1 / (maxT - minT);
-	for (size_t i = 0; i < vc.rdict.size(); ++i)
+	for (auto& p : counter)
 	{
-		if (vc.rfreqs[i] < minCnt) continue;
-		frequencies.emplace_back(vc.rfreqs[i]);
-		vocabs.add(vc.rdict.getStr(i));
+		if (p.second < minCnt) continue;
+		frequencies.emplace_back(p.second);
+		vocabs.add(p.first);
 	}
 	buildModel();
 }

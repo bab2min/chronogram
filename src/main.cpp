@@ -248,7 +248,7 @@ int main(int argc, char* argv[])
 
 		Timer timer;
 		MultipleReader reader{ args.input };
-		tgm.buildVocab(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.minCnt);
+		tgm.buildVocab(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.minCnt, args.worker);
 		cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size() 
 			<< "\tTotal Words: " << tgm.getTotalWords() << endl;
 		if(!args.fixed.empty())
