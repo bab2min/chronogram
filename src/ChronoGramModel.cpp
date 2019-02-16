@@ -1,7 +1,6 @@
 #include <numeric>
 #include <iostream>
 #include <iterator>
-#include <unordered_set>
 #include "ChronoGramModel.h"
 #include "IOUtils.h"
 #include "ThreadPool.h"
@@ -184,17 +183,20 @@ float ChronoGramModel::updateTimePrior(float lr, const Eigen::VectorXf & lWeight
 	return pr;
 }
 
-template<bool _Fixed>
+template<bool _Fixed, bool _GNgramMode>
 void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 	size_t windowLen, float start_lr, size_t nEpoch, size_t report)
 {
 	uniform_int_distribution<size_t> uid{ 0, windowLen > 2 ? windowLen - 2 : 0 };
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
+	float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
 
 	for (size_t i = 0; i < N; ++i)
 	{
 		const auto& x = ws[i];
-		float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
+		if (_GNgramMode && i != 0 && i != N - 1) continue;
+		if (_GNgramMode && x == (uint32_t)-1) continue;
+
 		size_t jBegin = 0, jEnd = N;
 		if (i > windowLen) jBegin = i - windowLen;
 		if (i + windowLen < N) jEnd = i + windowLen;
@@ -205,42 +207,45 @@ void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoin
 		for (auto j = jBegin; j < jEnd; ++j)
 		{
 			if (i == j) continue;
+			if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
 			float ll = inplaceUpdate<_Fixed>(x, ws[j], lr1 * (1 - zeta), false, coef);
-			assert(isnormal(ll));
+			assert(isfinite(ll));
 			for (size_t k = 0; k < negativeSampleSize; ++k)
 			{
 				uint32_t ns = unigramTable(globalData.rg);
 				while (ns == ws[j]) ns = unigramTable(globalData.rg);
 				ll += inplaceUpdate<_Fixed>(x, ns, lr1 * (1 - zeta), true, coef);
-				assert(isnormal(ll));
+				assert(isfinite(ll));
 			}
 			llCnt++;
 			llSum += ll * (1 - zeta);
 		}
-
-		procWords += 1;
 
 		if (!_Fixed && zeta > 0 && !fixedWords.count(x))
 		{
 			llSum += inplaceTimeUpdate(x, lr1 * zeta, coef);
 		}
 
-		totalLLCnt += llCnt;
-		totalLL += (llSum - llCnt * totalLL) / totalLLCnt;
-
-		if (!_Fixed && report && procWords % report == 0)
+		if (llCnt)
 		{
-			float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
-			printf("%.2f%% %.4f %.4f %.2f kwords/sec\n",
-				procWords / (totalWords / 100.f), totalLL, 
-				lr1, time_per_kword);
-			lastProcWords = procWords;
-			timer.reset();
+			totalLLCnt += llCnt;
+			totalLL += (llSum - llCnt * totalLL) / totalLLCnt;
 		}
+	}
+
+	procWords += _GNgramMode ? 0 : N;
+	if (!_Fixed && report && (procWords - _GNgramMode ? 0 : N) / report < procWords / report)
+	{
+		float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
+		fprintf(stderr, "%.2f%% %.4f %.4f %.2f kwords/sec\n",
+			procWords / (totalWords / 100.f), totalLL,
+			lr1, time_per_kword);
+		lastProcWords = procWords;
+		timer.reset();
 	}
 }
 
-template<bool _Fixed>
+template<bool _Fixed, bool _GNgramMode>
 void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timePoint,
 	size_t windowLen, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld)
 {
@@ -248,6 +253,7 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
 
 	float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
+
 	float llSum = 0;
 	size_t llCnt = 0;
 
@@ -258,6 +264,8 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 	for (size_t i = 0; i < N; ++i)
 	{
 		const auto& x = ws[i];
+		if (_GNgramMode && i != 0 && i != N - 1) continue;
+		if (_GNgramMode && x == (uint32_t)-1) continue;
 
 		size_t jBegin = 0, jEnd = N;
 		if (i > windowLen) jBegin = i - windowLen;
@@ -268,13 +276,14 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 		for (auto j = jBegin; j < jEnd; ++j)
 		{
 			if (i == j) continue;
+			if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
 			if (ld.updateOutIdx.find(ws[j]) == ld.updateOutIdx.end())
 				ld.updateOutIdx.emplace(ws[j], ld.updateOutIdx.size());
 
 			float ll = getUpdateGradient<_Fixed>(x, ws[j], lr1 * (1 - zeta), false, coef,
 				updateIn.col(0),
 				ld.updateOutMat.col(ld.updateOutIdx[ws[j]]));
-			assert(isnormal(ll));
+			assert(isfinite(ll));
 			for (size_t k = 0; k < negativeSampleSize; ++k)
 			{
 				uint32_t ns = unigramTable(ld.rg);
@@ -285,7 +294,7 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 				ll += getUpdateGradient<_Fixed>(x, ns, lr1 * (1 - zeta), true, coef,
 					updateIn.col(0),
 					ld.updateOutMat.col(ld.updateOutIdx[ns]));
-				assert(isnormal(ll));
+				assert(isfinite(ll));
 			}
 			llCnt++;
 			llSum += ll * (1 - zeta);
@@ -325,11 +334,14 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 	}
 
 	lock_guard<mutex> lock(mtx);
-	totalLLCnt += llCnt;
-	totalLL += (llSum - llCnt * totalLL) / totalLLCnt;
-	procWords += N;
+	if (llCnt)
+	{
+		totalLLCnt += llCnt;
+		totalLL += (llSum - llCnt * totalLL) / totalLLCnt;
+	}
+	procWords += _GNgramMode ? 0 : N;
 
-	if (!_Fixed && report && (procWords - N) / report < procWords / report)
+	if (!_Fixed && report && (procWords - (_GNgramMode ? 0 : N)) / report < procWords / report)
 	{
 		float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
 		fprintf(stderr, "%.2f%% %.4f %.4f %.2f kwords/sec\n",
@@ -490,7 +502,7 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 	}
 	vector<pair<vector<uint32_t>, float>> collections;
 	vector<float> timePoints;
-	size_t totW = accumulate(frequencies.begin(), frequencies.end(), 0);
+	uint64_t totW = accumulate(frequencies.begin(), frequencies.end(), 0ull);
 	// estimate total size
 	totalWords = epoch * totW;
 	totalTimePoints = totalWords / 4;
@@ -633,6 +645,201 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 
 			collections.emplace_back(make_pair(move(doc), rresult.timePoint));
 			if (collections.size() >= batch)
+			{
+				procCollection(false);
+			}
+		}
+	}
+	procCollection(false);
+	normalizeWordDist();
+}
+
+void ChronoGramModel::buildVocabFromDict(const function<pair<string, uint64_t>()>& reader, float minT, float maxT)
+{
+	zBias = minT;
+	zSlope = minT == maxT ? 1 : 1 / (maxT - minT);
+	pair<string, uint64_t> p;
+	while((p = reader()).second > 0)
+	{
+		frequencies.emplace_back(p.second);
+		vocabs.add(p.first);
+	}
+	buildModel();
+}
+
+void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& reader, uint64_t maxItems,
+	size_t numWorkers, float fixedInit, float start_lr, size_t batchSents, size_t epochs, size_t report)
+{
+	if (!numWorkers) numWorkers = thread::hardware_concurrency();
+	ThreadPool workers{ numWorkers };
+	vector<ThreadLocalData> ld;
+	if (numWorkers > 1)
+	{
+		ld.resize(numWorkers);
+		for (auto& l : ld)
+		{
+			l.rg = mt19937_64{ globalData.rg() };
+		}
+	}
+
+	vector<array<uint32_t, 5>> ngrams;
+	vector<pair<uint32_t, float>> collections;
+	vector<float> timePoints;
+	
+	uint64_t totW = accumulate(frequencies.begin(), frequencies.end(), 0ull);
+	totalWords = epochs * maxItems;
+	totalTimePoints = totalWords / 8;
+
+	totalLL = totalLLCnt = 0;
+	procWords = lastProcWords = 0;
+
+	size_t read = 0;
+	const auto& procCollection = [&](bool fixed)
+	{
+		if (collections.empty()) return;
+		shuffle(collections.begin(), collections.end(), globalData.rg);
+
+		timePoints.resize(collections.size() / 8);
+		transform(collections.begin(), collections.begin() + timePoints.size(), timePoints.begin(), [](auto p) { return p.second; });
+
+		if (numWorkers > 1)
+		{
+			vector<future<void>> futures;
+			futures.reserve(collections.size());
+			for (auto& d : collections)
+			{
+				if (fixed)
+				{
+					futures.emplace_back(workers.enqueue([&](size_t threadId)
+					{
+						trainVectorsMulti<true, true>(ngrams[d.first].data(), 5, d.second,
+							4, start_lr, epochs, report, ld[threadId]);
+					}));
+				}
+				else
+				{
+					futures.emplace_back(workers.enqueue([&](size_t threadId)
+					{
+						trainVectorsMulti<false, true>(ngrams[d.first].data(), 5, d.second,
+							4, start_lr, epochs, report, ld[threadId]);
+					}));
+				}
+			}
+			if (!fixed) trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
+			for (auto& f : futures) f.get();
+		}
+		else
+		{
+			for (auto& d : collections)
+			{
+				if (fixed)
+				{
+					trainVectors<true, true>(ngrams[d.first].data(), 5, d.second,
+						4, start_lr, epochs, report);
+				}
+				else
+				{
+					trainVectors<false, true>(ngrams[d.first].data(), 5, d.second,
+						4, start_lr, epochs, report);
+				}
+			}
+			if (!fixed) trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
+		}
+		collections.clear();
+		timePoints.clear();
+
+		float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
+		fprintf(stderr, "%.2f%% %.4f %.2f kwords/sec\n",
+			procWords / (totalWords / 100.f), totalLL, time_per_kword);
+		lastProcWords = procWords;
+		timer.reset();
+	};
+
+	if (fixedInit > 0)
+	{
+		for (size_t id = 0; id < maxItems * fixedInit; ++id)
+		{
+			auto rresult = reader(id);
+			if (rresult.yearCnt.empty()) break;
+
+			for (auto& w : rresult.ngram)
+			{
+				if (w == (uint32_t)-1) continue;
+				float ww = subsampling / (frequencies[w] / (float)totW);
+				if (subsampling > 0 &&
+					generate_canonical<float, 24>(globalData.rg) > sqrt(ww) + ww)
+				{
+					w = -1;
+				}
+			}
+
+			++procWords;
+			if ((rresult.ngram[0] == (uint32_t)-1 && rresult.ngram[4] == (uint32_t)-1) ||
+				count(rresult.ngram.begin(), rresult.ngram.end(), (uint32_t)-1) == 4)
+			{
+				continue;
+			}
+
+			for (auto& p : rresult.yearCnt)
+			{
+				for (size_t cnt = 0; cnt < p.second; ++cnt)
+				{
+					collections.emplace_back(ngrams.size(), p.first);
+				}
+			}
+
+			ngrams.emplace_back(rresult.ngram);
+			
+			if (collections.size() >= batchSents)
+			{
+				procCollection(true);
+			}
+		}
+		procCollection(true);
+		fprintf(stderr, "All vectors were initialized as fixed word embeddeings with ll %f\n", totalLL);
+	}
+	procWords = lastProcWords = 0;
+	totalLL = totalLLCnt = 0;
+	timeLL = timeLLCnt = 0;
+	procTimePoints = 0;
+	timer.reset();
+
+	for (size_t e = 0; e < epochs; ++e)
+	{
+		for (size_t id = 0; id < maxItems; ++id)
+		{
+			auto rresult = reader(id);
+			if (rresult.yearCnt.empty()) break;
+
+			for (auto& w : rresult.ngram)
+			{
+				if (w == (uint32_t)-1) continue;
+				float ww = subsampling / frequencies[w] * totW;
+				if (subsampling > 0 &&
+					generate_canonical<float, 24>(globalData.rg) > sqrt(ww) + ww)
+				{
+					w = -1;
+				}
+			}
+
+			++procWords;
+			if ((rresult.ngram[0] == (uint32_t)-1 && rresult.ngram[4] == (uint32_t)-1) || 
+				count(rresult.ngram.begin(), rresult.ngram.end(), (uint32_t)-1) == 4)
+			{
+				continue;
+			}
+
+			for (auto& p : rresult.yearCnt)
+			{
+				for (size_t cnt = 0; cnt < p.second; ++cnt)
+				{
+					collections.emplace_back(ngrams.size(), p.first);
+				}
+			}
+
+			ngrams.emplace_back(rresult.ngram);
+
+			if (collections.size() >= batchSents)
 			{
 				procCollection(false);
 			}
@@ -1142,6 +1349,11 @@ float ChronoGramModel::getWordProbByTime(const std::string & word, float timePoi
 float ChronoGramModel::getTimePrior(float timePoint) const
 {
 	return getTimePrior(makeCoef(L, normalizedTimePoint(timePoint)));
+}
+
+size_t ChronoGramModel::getTotalWords() const
+{
+	return accumulate(frequencies.begin(), frequencies.end(), 0);
 }
 
 size_t ChronoGramModel::getWordCount(const std::string & word) const

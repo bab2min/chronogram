@@ -15,12 +15,16 @@
 
 #include "cxxopts.hpp"
 #include "ChronoGramModel.h"
+#include "DataReader.h"
 
 using namespace std;
 
 struct Args
 {
 	string load, save, eval, result, llSave, fixed, loadPrior;
+	string vocab, ngram;
+	size_t maxItem = -1;
+	float minT = INFINITY, maxT = -INFINITY;
 	vector<string> input;
 	int worker = 0, window = 4, dimension = 100;
 	int order = 5, epoch = 1, negative = 5;
@@ -36,48 +40,6 @@ struct Args
 	string evalShift, shiftMetric;
 	float mixed = 0, timeA = INFINITY, timeB = INFINITY;
 };
-
-struct MultipleReader
-{
-	vector<string> files;
-	size_t currentId = 0;
-	ifstream ifs;
-
-	MultipleReader(const vector<string>& _files) : files(_files)
-	{
-		ifs = ifstream{ files[currentId] };
-	}
-
-	ChronoGramModel::ReadResult operator()(size_t id)
-	{
-		ChronoGramModel::ReadResult rr;
-		string line;
-		if (id == 0)
-		{
-			currentId = 0;
-			ifs = ifstream{ files[currentId] };
-		}
-
-		while (currentId < files.size())
-		{
-			while (getline(ifs, line))
-			{
-				istringstream iss{ line };
-				istream_iterator<string> iBegin{ iss }, iEnd{};
-				string time = *iBegin++;
-				rr.timePoint = stof(time);
-				copy(iBegin, iEnd, back_inserter(rr.words));
-				if (rr.words.empty()) continue;
-				return rr;
-			}
-			if (++currentId >= files.size()) break;
-			ifs = ifstream{ files[currentId] };
-		}
-		rr.stop = true;
-		return rr;
-	}
-};
-
 
 
 int main(int argc, char* argv[])
@@ -114,6 +76,14 @@ int main(int argc, char* argv[])
 			("semEval", "Print SemEval2015 Task7 Result", cxxopts::value<int>()->implicit_value("1"))
 			;
 
+		options.add_options("Google Ngram")
+			("vocab", "Vocab file", cxxopts::value<string>())
+			("ngram", "Ngram file", cxxopts::value<string>())
+			("maxItem", "max item to be loaded", cxxopts::value<size_t>())
+			("minT", "Minimum time point", cxxopts::value<float>())
+			("maxT", "Maximum time point", cxxopts::value<float>())
+			;
+
 		options.add_options("Text Dating")
 			("eval", "Evaluation set File", cxxopts::value<string>(), "Evaluation set file path")
 			("result", "Evaluation Result File", cxxopts::value<string>(), "Evaluation result file path")
@@ -144,7 +114,7 @@ int main(int argc, char* argv[])
 			}
 			if (result.count("help"))
 			{
-				cout << options.help({ "" }) << endl;
+				cout << options.help({ "", "Text Dating", "Semantic Shift", "Google Ngram" }) << endl;
 				return 0;
 			}
 
@@ -160,6 +130,13 @@ int main(int argc, char* argv[])
 			READ_OPT(fixed, string);
 			READ_OPT(loadPrior, string);
 			READ_OPT(llSave, string);
+
+			READ_OPT(vocab, string);
+			READ_OPT(ngram, string);
+			READ_OPT(minT, float);
+			READ_OPT(maxT, float);
+
+			READ_OPT(maxItem, size_t);
 
 			if (result.count("input")) args.input.emplace_back(result["input"].as<string>());
 			for (size_t i = 1; i < argc; ++i)
@@ -177,6 +154,7 @@ int main(int argc, char* argv[])
 			READ_OPT(minCnt, int);
 			READ_OPT(nsQ, int);
 			READ_OPT(initStep, int);
+			READ_OPT(report, int);
 			
 			READ_OPT(compressed, int);
 			READ_OPT(semEval, int);
@@ -196,15 +174,15 @@ int main(int argc, char* argv[])
 			READ_OPT(mixed, float);
 			READ_OPT(shiftMetric, string);
 			
-			if (args.load.empty() && args.input.empty())
+			if (args.load.empty() && args.input.empty() && args.ngram.empty())
 			{
-				throw cxxopts::OptionException("'input' or 'load' should be specified.");
+				throw cxxopts::OptionException("'input', 'load' or 'ngram' should be specified.");
 			}
 		}
 		catch (const cxxopts::OptionException& e)
 		{
 			cout << "error parsing options: " << e.what() << endl;
-			cout << options.help({ "", "Text Dating", "Semantic Shift" }) << endl;
+			cout << options.help({ "", "Text Dating", "Semantic Shift", "Google Ngram" }) << endl;
 			return -1;
 		}
 
@@ -232,25 +210,74 @@ int main(int argc, char* argv[])
 		cout << "Zeta: " << tgm.getZeta() << "\tLambda: " << tgm.getLambda() << endl;
 		cout << "Padding: " << tgm.getPadding() << endl;
 	}
-	else if (!args.input.empty())
+	else if (!args.input.empty() || !args.ngram.empty())
 	{
 		cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
 		cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << "\tLambda: " << args.lambda << endl;
 		cout << "Padding: " << tgm.getPadding() << "\tTime Negative Weight: " << args.timeNegative << "\tFixed Initializing Weight: " << args.fixedInit << endl;
 
-		cout << "Training Input: ";
-		for (auto& s : args.input)
+		if (args.ngram.empty())
 		{
-			cout << s << "  ";
+			cout << "Training Input: ";
+			for (auto& s : args.input)
+			{
+				cout << s << "  ";
+			}
+			cout << endl;
 		}
-		cout << endl;
+		else
+		{
+			cout << "Training Ngram Corpus Input: " << args.ngram << endl;
+		}
 
 		Timer timer;
-		MultipleReader reader{ args.input };
-		tgm.buildVocab(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.minCnt, args.worker);
-		cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size() 
-			<< "\tTotal Words: " << tgm.getTotalWords() << endl;
+		if (!args.ngram.empty())
+		{
+			if (args.maxItem == (size_t)-1)
+			{
+				GNgramBinaryReader reader{ args.ngram };
+				args.maxItem = 0;
+				if (!isfinite(args.minT))
+				{
+					while (1)
+					{
+						auto p = reader(args.maxItem++).yearCnt;
+						if (p.empty()) break;
+						args.minT = min(min_element(p.begin(), p.end())->first, args.minT);
+						args.maxT = max(max_element(p.begin(), p.end())->first, args.maxT);
+					}
+					cout << "Time point: [" << args.minT << ", " << args.maxT << "]" << endl;
+				}
+				else
+				{
+					while (!reader(args.maxItem++).yearCnt.empty());
+				}
+				cout << "Total items in training data: " << args.maxItem << endl;
+			}
+		}
+
+		if (args.vocab.empty())
+		{
+			MultipleReader reader{ args.input };
+			tgm.buildVocab(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.minCnt, args.worker);
+			cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size()
+				<< "\tTotal Words: " << tgm.getTotalWords() << endl;
+		}
+		else
+		{
+			ifstream vocab{ args.vocab };
+			tgm.buildVocabFromDict([&vocab]()
+			{
+				string w;
+				uint64_t cnt = 0;
+				vocab >> w >> cnt;
+				return make_pair(w, cnt);
+			}, args.minT, args.maxT);
+
+			cout << "Vocab Size: " << tgm.getVocabs().size() << endl;
+		}
+
 		if(!args.fixed.empty())
 		{
 			ifstream ifs{ args.fixed };
@@ -263,9 +290,21 @@ int main(int argc, char* argv[])
 			}
 			cout << numFixedWords << " fixed words are loaded." << endl;
 		}
-		tgm.train(bind(&MultipleReader::operator(), &reader, placeholders::_1),
-			args.worker, args.window, args.fixedInit,
-			.025f, args.batch, args.epoch, args.report);
+
+		if (args.ngram.empty())
+		{
+			MultipleReader reader{ args.input };
+			tgm.train(bind(&MultipleReader::operator(), &reader, placeholders::_1),
+				args.worker, args.window, args.fixedInit,
+				.025f, args.batch, args.epoch, args.report);
+		}
+		else
+		{
+			GNgramBinaryReader reader{ args.ngram };
+			tgm.trainFromGNgram(bind(&GNgramBinaryReader::operator(), &reader, placeholders::_1),
+				args.maxItem, args.worker, args.fixedInit,
+				.025f, args.batch, args.epoch, args.report);
+		}
 
 		cout << "Finished in " << timer.getElapsed() << " sec" << endl;
 		if (!args.save.empty())

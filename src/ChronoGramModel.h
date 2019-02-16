@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <unordered_set>
 #include <random>
 #include <functional>
 #include <mutex>
@@ -41,6 +42,12 @@ public:
 		std::vector<std::string> words;
 		float timePoint = 0;
 		bool stop = false;
+	};
+
+	struct GNgramReadResult
+	{
+		std::array<uint32_t, 5> ngram;
+		std::vector<std::pair<float, uint32_t>> yearCnt;
 	};
 
 	class LLEvaluater
@@ -101,7 +108,7 @@ private:
 		std::unordered_map<uint32_t, uint32_t> updateOutIdx;
 	};
 
-	std::vector<size_t> frequencies; // (V)
+	std::vector<uint64_t> frequencies; // (V)
 	std::vector<float> wordScale;
 	std::unordered_set<uint32_t> fixedWords;
 	Eigen::MatrixXf in; // (M, L * V)
@@ -159,11 +166,11 @@ private:
 	void buildModel();
 	void buildTable();
 
-	template<bool _Fixed = false>
+	template<bool _Fixed = false, bool _GNgramMode = false>
 	void trainVectors(const uint32_t* ws, size_t N, float timePoint,
 		size_t windowLen, float start_lr, size_t nEpoch, size_t report);
 
-	template<bool _Fixed = false>
+	template<bool _Fixed = false, bool _GNgramMode = false>
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
 		size_t windowLen, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld);
 	void trainTimePrior(const float* ts, size_t N, float lr, size_t report);
@@ -235,6 +242,10 @@ public:
 		size_t windowLen = 4, float fixedInit = 0.f,
 		float start_lr = .025f, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
+	void buildVocabFromDict(const std::function<std::pair<std::string, uint64_t>()>& reader, float minT, float maxT);
+	void trainFromGNgram(const std::function<GNgramReadResult(size_t)>& reader, uint64_t maxItems, size_t numWorkers = 0,
+		float fixedInit = 0.f, float start_lr = .025f, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
+
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
 	float angleOfWord(const std::string& word, size_t step = 100) const;
 
@@ -287,7 +298,7 @@ public:
 	size_t getL() const { return L; }
 	size_t getM() const { return M; }
 
-	size_t getTotalWords() const { return std::accumulate(frequencies.begin(), frequencies.end(), 0); }
+	size_t getTotalWords() const;
 	size_t getWordCount(const std::string& word) const;
 
 	float getZeta() const { return zeta; }

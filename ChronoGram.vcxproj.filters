@@ -39,6 +39,9 @@
     <ClInclude Include="src\ChronoGramModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\DataReader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp">
@@ -48,6 +51,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\IOUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\DataReader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

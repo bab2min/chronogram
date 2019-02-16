@@ -282,3 +282,6 @@ __pycache__/
 /gold.pp.txt
 /SEPrior.txt
 /CG.SE.r05.w7.bin
+/google1M.vocab
+/google1M.ngram
+/g1M.cg
