@@ -686,6 +686,8 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 	vector<pair<uint32_t, float>> collections;
 	vector<float> timePoints;
 	
+	const float minT = getMinPoint(), maxT = getMaxPoint();
+
 	uint64_t totW = accumulate(frequencies.begin(), frequencies.end(), 0ull);
 	totalWords = epochs * maxItems;
 	totalTimePoints = totalWords / 8;
@@ -782,6 +784,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 
 			for (auto& p : rresult.yearCnt)
 			{
+				if (p.first < minT || p.first > maxT) continue;
 				for (size_t cnt = 0; cnt < p.second; ++cnt)
 				{
 					collections.emplace_back(ngrams.size(), p.first);
@@ -831,6 +834,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 
 			for (auto& p : rresult.yearCnt)
 			{
+				if (p.first < minT || p.first > maxT) continue;
 				for (size_t cnt = 0; cnt < p.second; ++cnt)
 				{
 					collections.emplace_back(ngrams.size(), p.first);

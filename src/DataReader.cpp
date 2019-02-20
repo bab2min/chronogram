@@ -57,6 +57,7 @@ ChronoGramModel::GNgramReadResult GNgramBinaryReader::operator()(size_t id)
 	if (id == 0)
 	{
 		ifs.seekg(0);
+		ifs.clear();
 	}
 
 	ChronoGramModel::GNgramReadResult ret;
