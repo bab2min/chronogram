@@ -862,7 +862,7 @@ float ChronoGramModel::arcLengthOfWord(const string & word, size_t step) const
 	for (size_t i = 0; i < step; ++i)
 	{
 		VectorXf u = makeTimedVector(wv, makeCoef(L, (float)(i + 1) / step * (1 - timePadding * 2) + timePadding));
-		len += sqrt((v - u).squaredNorm() + pow(1.f / step, 2));
+		len += (v - u).norm();
 		v.swap(u);
 	}
 	return len;
