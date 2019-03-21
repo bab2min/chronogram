@@ -187,7 +187,6 @@ template<bool _Fixed, bool _GNgramMode>
 void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 	size_t windowLen, float start_lr, size_t nEpoch, size_t report)
 {
-	uniform_int_distribution<size_t> uid{ 0, windowLen > 2 ? windowLen - 2 : 0 };
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
 	float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
 
@@ -197,14 +196,14 @@ void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoin
 		if (_GNgramMode && i != 0 && i != N - 1) continue;
 		if (_GNgramMode && x == (uint32_t)-1) continue;
 
-		size_t jBegin = 0, jEnd = N;
+		size_t jBegin = 0, jEnd = N - 1;
 		if (i > windowLen) jBegin = i - windowLen;
 		if (i + windowLen < N) jEnd = i + windowLen;
 
 		float llSum = 0;
 		size_t llCnt = 0;
 		// update in, out vector
-		for (auto j = jBegin; j < jEnd; ++j)
+		for (auto j = jBegin; j <= jEnd; ++j)
 		{
 			if (i == j) continue;
 			if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
@@ -249,7 +248,6 @@ template<bool _Fixed, bool _GNgramMode>
 void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timePoint,
 	size_t windowLen, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld)
 {
-	uniform_int_distribution<size_t> uid{ 0, windowLen > 2 ? windowLen - 2 : 0 };
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
 
 	float lr1 = max(start_lr * (1 - procWords / (totalWords + 1.f)), start_lr * 1e-4f);
@@ -267,13 +265,13 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 		if (_GNgramMode && i != 0 && i != N - 1) continue;
 		if (_GNgramMode && x == (uint32_t)-1) continue;
 
-		size_t jBegin = 0, jEnd = N;
+		size_t jBegin = 0, jEnd = N - 1;
 		if (i > windowLen) jBegin = i - windowLen;
 		if (i + windowLen < N) jEnd = i + windowLen;
 		updateIn.setZero();
 
 		// update in, out vector
-		for (auto j = jBegin; j < jEnd; ++j)
+		for (auto j = jBegin; j <= jEnd; ++j)
 		{
 			if (i == j) continue;
 			if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
@@ -504,7 +502,7 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 	vector<float> timePoints;
 	uint64_t totW = accumulate(frequencies.begin(), frequencies.end(), 0ull);
 	// estimate total size
-	totalWords = epoch * totW;
+	totalWords = totW * fixedInit;
 	totalTimePoints = totalWords / 4;
 
 	totalLL = totalLLCnt = 0;
@@ -545,7 +543,7 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 					}));
 				}
 			}
-			if(!fixed) trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
+			if(!fixed && zeta > 0) trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
 			for (auto& f : futures) f.get();
 		}
 		else
@@ -571,44 +569,51 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 
 	if (fixedInit > 0)
 	{
-		for (size_t id = 0; ; ++id)
+		size_t flr = fixedInit;
+		float frac = fmod(fixedInit, 1.f);
+		for (size_t e = 0; e <= flr; ++e)
 		{
-			auto rresult = reader(id);
-			if (rresult.words.empty()) break;
-
-			vector<uint32_t> doc;
-			doc.reserve(rresult.words.size());
-			for (auto& w : rresult.words)
+			for (size_t id = 0; ; ++id)
 			{
-				auto id = vocabs.get(w);
-				if (id < 0) continue;
-				float ww = subsampling / (frequencies[id] / (float)totW);
-				if (subsampling > 0 &&
-					generate_canonical<float, 24>(globalData.rg) > sqrt(ww) + ww)
+				if (procWords >= (e == flr ? frac : 1) * totW) break;
+				auto rresult = reader(id);
+				if (rresult.words.empty()) break;
+
+				vector<uint32_t> doc;
+				doc.reserve(rresult.words.size());
+				for (auto& w : rresult.words)
 				{
-					procWords++;
+					auto id = vocabs.get(w);
+					if (id < 0) continue;
+					float ww = subsampling / (frequencies[id] / (float)totW);
+					if (subsampling > 0 &&
+						generate_canonical<float, 24>(globalData.rg) > sqrt(ww) + ww)
+					{
+						procWords++;
+						continue;
+					}
+					doc.emplace_back(id);
+				}
+
+				if (doc.size() < 2)
+				{
+					procWords += doc.size();
 					continue;
 				}
-				doc.emplace_back(id);
-			}
 
-			if (doc.size() < 2)
-			{
-				procWords += doc.size();
-				continue;
+				collections.emplace_back(make_pair(move(doc), rresult.timePoint));
+				if (collections.size() >= batch)
+				{
+					procCollection(true);
+				}
 			}
-
-			collections.emplace_back(make_pair(move(doc), rresult.timePoint));
-			if (collections.size() >= batch)
-			{
-				procCollection(true);
-				if (procWords > fixedInit * totW) break;
-			}
+			procCollection(true);
 		}
-		procCollection(true);
 		fprintf(stderr, "All vectors were initialized as fixed word embeddeings with ll %f\n", totalLL);
 	}
 	procWords = lastProcWords = 0;
+	totalWords = totW * epoch;
+	totalTimePoints = totalWords / 4;
 	totalLL = totalLLCnt = 0;
 	timeLL = timeLLCnt = 0;
 	procTimePoints = 0;
@@ -689,7 +694,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 	const float minT = getMinPoint(), maxT = getMaxPoint();
 
 	uint64_t totW = accumulate(frequencies.begin(), frequencies.end(), 0ull);
-	totalWords = epochs * maxItems;
+	totalWords = maxItems * fixedInit;
 	totalTimePoints = totalWords / 8;
 
 	totalLL = totalLLCnt = 0;
@@ -727,7 +732,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 					}));
 				}
 			}
-			if (!fixed) trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
+			if (!fixed && zeta > 0) trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
 			for (auto& f : futures) f.get();
 		}
 		else
@@ -759,49 +764,56 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 
 	if (fixedInit > 0)
 	{
-		for (size_t id = 0; id < maxItems * fixedInit; ++id)
+		size_t flr = fixedInit;
+		float frac = fmod(fixedInit, 1.f);
+		for (size_t e = 0; e <= flr; ++e)
 		{
-			auto rresult = reader(id);
-			if (rresult.yearCnt.empty()) break;
-
-			for (auto& w : rresult.ngram)
+			for (size_t id = 0; id < maxItems * (e == flr ? frac : 1); ++id)
 			{
-				if (w == (uint32_t)-1) continue;
-				float ww = subsampling / (frequencies[w] / (float)totW);
-				if (subsampling > 0 &&
-					generate_canonical<float, 24>(globalData.rg) > sqrt(ww) + ww)
+				auto rresult = reader(id);
+				if (rresult.yearCnt.empty()) break;
+
+				for (auto& w : rresult.ngram)
 				{
-					w = -1;
+					if (w == (uint32_t)-1) continue;
+					float ww = subsampling / (frequencies[w] / (float)totW);
+					if (subsampling > 0 &&
+						generate_canonical<float, 24>(globalData.rg) > sqrt(ww) + ww)
+					{
+						w = -1;
+					}
+				}
+
+				++procWords;
+				if ((rresult.ngram[0] == (uint32_t)-1 && rresult.ngram[4] == (uint32_t)-1) ||
+					count(rresult.ngram.begin(), rresult.ngram.end(), (uint32_t)-1) == 4)
+				{
+					continue;
+				}
+
+				for (auto& p : rresult.yearCnt)
+				{
+					if (p.first < minT || p.first > maxT) continue;
+					for (size_t cnt = 0; cnt < p.second; ++cnt)
+					{
+						collections.emplace_back(ngrams.size(), p.first);
+					}
+				}
+
+				ngrams.emplace_back(rresult.ngram);
+
+				if (collections.size() >= batchSents)
+				{
+					procCollection(true);
 				}
 			}
-
-			++procWords;
-			if ((rresult.ngram[0] == (uint32_t)-1 && rresult.ngram[4] == (uint32_t)-1) ||
-				count(rresult.ngram.begin(), rresult.ngram.end(), (uint32_t)-1) == 4)
-			{
-				continue;
-			}
-
-			for (auto& p : rresult.yearCnt)
-			{
-				if (p.first < minT || p.first > maxT) continue;
-				for (size_t cnt = 0; cnt < p.second; ++cnt)
-				{
-					collections.emplace_back(ngrams.size(), p.first);
-				}
-			}
-
-			ngrams.emplace_back(rresult.ngram);
-			
-			if (collections.size() >= batchSents)
-			{
-				procCollection(true);
-			}
+			procCollection(true);
 		}
-		procCollection(true);
 		fprintf(stderr, "All vectors were initialized as fixed word embeddeings with ll %f\n", totalLL);
 	}
 	procWords = lastProcWords = 0;
+	totalWords = maxItems * epochs;
+	totalTimePoints = totalWords / 8;
 	totalLL = totalLLCnt = 0;
 	timeLL = timeLLCnt = 0;
 	procTimePoints = 0;

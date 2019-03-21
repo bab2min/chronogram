@@ -34,6 +34,7 @@ struct Args
 	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
 	float timeNegative = 1.f, fixedInit = 0, threshold = 0.0025f;
 	float timePrior = 0;
+	float subsampling = 1e-4f;
 	bool compressed = true;
 	bool semEval = false;
 
@@ -71,6 +72,7 @@ int main(int argc, char* argv[])
 			("z,zeta", "", cxxopts::value<float>())
 			("lambda", "", cxxopts::value<float>())
 			("p,padding", "", cxxopts::value<float>())
+			("ss", "Sub-Samping", cxxopts::value<float>())
 
 			("compressed", "Save as compressed", cxxopts::value<int>(), "default = 1")
 			("semEval", "Print SemEval2015 Task7 Result", cxxopts::value<int>()->implicit_value("1"))
@@ -135,6 +137,7 @@ int main(int argc, char* argv[])
 			READ_OPT(ngram, string);
 			READ_OPT(minT, float);
 			READ_OPT(maxT, float);
+			READ_OPT2(ss, subsampling, float);
 
 			READ_OPT(maxItem, size_t);
 
