@@ -285,3 +285,5 @@ __pycache__/
 /google1M.vocab
 /google1M.ngram
 /g1M.cg
+*.cg
+/cg.nyt

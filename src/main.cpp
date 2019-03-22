@@ -40,6 +40,8 @@ struct Args
 
 	string evalShift, shiftMetric;
 	float mixed = 0, timeA = INFINITY, timeB = INFINITY;
+
+	string evalCTA;
 };
 
 
@@ -103,6 +105,10 @@ int main(int argc, char* argv[])
 			("timeA", "", cxxopts::value<float>())
 			("timeB", "", cxxopts::value<float>())
 			("shiftMetric", "", cxxopts::value<string>())
+			;
+
+		options.add_options("Cross Temporal Analogy")
+			("evalCTA", "File to be evaluate cross temporal analogy", cxxopts::value<string>())
 			;
 
 		try
@@ -176,6 +182,8 @@ int main(int argc, char* argv[])
 			READ_OPT(timeB, float);
 			READ_OPT(mixed, float);
 			READ_OPT(shiftMetric, string);
+
+			READ_OPT(evalCTA, string);
 			
 			if (args.load.empty() && args.input.empty() && args.ngram.empty())
 			{
@@ -325,7 +333,7 @@ int main(int argc, char* argv[])
 
 		ifstream ifs{ args.evalShift };
 		string line;
-		cout << "== Calculating semantic shift : " << args.evalShift 
+		cout << "== Evaluating semantic shift : " << args.evalShift 
 			<< " between " << args.timeA << " and " << args.timeB << " ==" << endl;
 		while (getline(ifs, line))
 		{
@@ -344,6 +352,61 @@ int main(int argc, char* argv[])
 			cout << line << '\t' << s << endl;
 		}
 		cout << endl;
+	}
+
+	if (!args.evalCTA.empty())
+	{
+		ifstream ifs{ args.evalCTA };
+		string line;
+		cout << "== Evaluating cross temporal analogy : " << args.evalCTA << endl;
+		array<size_t, 5> at = { 0, 1, 3, 5, 10 };
+		array<float, 5> scores = { 0, };
+		size_t totSet = 0;
+		
+		while (getline(ifs, line))
+		{
+			if (isspace(line.back())) line.pop_back();
+			istringstream iss{ line };
+			string left, right;
+			if (!getline(iss, left, ',')) continue;
+			if (!getline(iss, right, ',')) continue;
+			
+			if (left.find('-') == string::npos || right.find('-') == string::npos)
+			{
+				cerr << "wrong input: " << line << endl;
+				continue;
+			}
+
+			float lYear = stof(left.substr(left.find('-') + 1));
+			float rYear = stof(right.substr(right.find('-') + 1));
+
+			left = left.substr(0, left.find('-'));
+			right = right.substr(0, right.find('-'));
+			auto res = tgm.nearestNeighbors(left, lYear, rYear, args.mixed, 10);
+			size_t rank = 0;
+			for (; rank < res.size(); ++rank)
+			{
+				if (get<0>(res[rank]) == right) break;
+			}
+
+			if (rank < 10)
+			{
+				for (size_t i = 0; i < at.size(); ++i)
+				{
+					if (at[i] == 0) scores[i] += 1.f / (rank + 1);
+					else if (rank < at[i]) scores[i] += 1;
+				}
+			}
+			totSet++;
+		}
+
+		for (auto& s : scores) s /= totSet;
+		for (size_t i = 0; i < at.size(); ++i)
+		{
+			if (at[i]) cout << "MP@" << at[i];
+			else cout << "MPR";
+			cout << "\t" << scores[i] << endl;
+		}
 	}
 
 	map<float, float> priorMap;
@@ -806,7 +869,7 @@ int main(int argc, char* argv[])
 			cout << endl;
 
 			cout << "==== Most Similar Overall ====" << endl;
-			for (auto& p : tgm.mostSimilar(positivesO, negativesO, 20))
+			for (auto& p : tgm.mostSimilarStatic(positivesO, negativesO, 20))
 			{
 				if (get<1>(p) <= 0) break;
 				cout << left << setw(12) << get<0>(p) << '\t' << get<1>(p) << endl;

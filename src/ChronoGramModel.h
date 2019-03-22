@@ -250,12 +250,12 @@ public:
 	float angleOfWord(const std::string& word, size_t step = 100) const;
 
 	std::vector<std::tuple<std::string, float, float>> nearestNeighbors(const std::string& word, 
-		float wordTimePoint, float searchingTimePoint, size_t K = 10) const;
+		float wordTimePoint, float searchingTimePoint, float m = 0, size_t K = 10) const;
 	std::vector<std::tuple<std::string, float, float>> mostSimilar(
 		const std::vector<std::pair<std::string, float>>& positiveWords,
 		const std::vector<std::pair<std::string, float>>& negativeWords,
 		float searchingTimePoint, float m = 0, size_t K = 10) const;
-	std::vector<std::tuple<std::string, float>> mostSimilar(
+	std::vector<std::tuple<std::string, float>> mostSimilarStatic(
 		const std::vector<std::string>& positiveWords,
 		const std::vector<std::string>& negativeWords,
 		size_t K = 10) const;

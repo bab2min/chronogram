@@ -896,9 +896,9 @@ float ChronoGramModel::angleOfWord(const std::string & word, size_t step) const
 }
 
 vector<tuple<string, float, float>> ChronoGramModel::nearestNeighbors(const string & word,
-	float wordTimePoint, float searchingTimePoint, size_t K) const
+	float wordTimePoint, float searchingTimePoint, float m, size_t K) const
 {
-	return mostSimilar({ make_pair(word, wordTimePoint) }, {}, searchingTimePoint, K);
+	return mostSimilar({ make_pair(word, wordTimePoint) }, {}, searchingTimePoint, m, K);
 }
 
 vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
@@ -968,7 +968,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 	return top;
 }
 
-vector<tuple<string, float>> ChronoGramModel::mostSimilar(
+vector<tuple<string, float>> ChronoGramModel::mostSimilarStatic(
 	const vector<string>& positiveWords,
 	const vector<string>& negativeWords,
 	size_t K) const
