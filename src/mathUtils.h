@@ -67,3 +67,59 @@ inline float integratedChebyshevTT(size_t n, size_t m)
 {
 	return (integratedChebyshevT(n + m) + integratedChebyshevT(std::max(n, m) - std::min(n, m))) / 2;
 }
+
+template<typename _OutTy, typename _RandIter>
+_OutTy correlPearson(_RandIter xFirst, _RandIter xLast, _RandIter yFirst)
+{
+	_OutTy xMean = 0, yMean = 0, xSqMean = 0, ySqMean = 0, xyMean = 0;
+	size_t cnt = 0;
+	for (auto x = xFirst, y = yFirst; x != xLast; ++x, ++y, ++cnt)
+	{
+		xMean += *x;
+		yMean += *y;
+		xSqMean += *x * *x;
+		ySqMean += *y * *y;
+		xyMean += *x * *y;
+	}
+	xMean /= cnt;
+	yMean /= cnt;
+	xSqMean /= cnt;
+	ySqMean /= cnt;
+	xyMean /= cnt;
+	return (xyMean - xMean * yMean) / sqrt((xSqMean - xMean * xMean) * (ySqMean - yMean * yMean));
+}
+
+template<typename _InputIter, typename _OutputIter>
+void rankAvg(_InputIter srcFirst, _InputIter srcLast, _OutputIter destFirst)
+{
+	size_t len = std::distance(srcFirst, srcLast);
+	std::vector<size_t> idx(len);
+	std::iota(idx.begin(), idx.end(), 0);
+	std::sort(idx.begin(), idx.end(), [&](auto l, auto r)
+	{
+		return srcFirst[l] < srcFirst[r];
+	});
+	size_t rank = 1;
+	for (size_t i = 0; i < len; )
+	{
+		size_t n = 1;
+		while (i + n < len && srcFirst[idx[i + n - 1]] == srcFirst[idx[i + n]]) ++n;
+
+		for (size_t j = 0; j < n; ++j)
+		{
+			destFirst[idx[i + j]] = rank + (n - 1) * .5;
+		}
+		rank += n;
+		i += n;
+	}
+}
+
+template<typename _OutTy, typename _RandIter>
+_OutTy correlSpearman(_RandIter xFirst, _RandIter xLast, _RandIter yFirst)
+{
+	size_t len = std::distance(xFirst, xLast);
+	std::vector<_OutTy> xRank(len), yRank(len);
+	rankAvg(xFirst, xLast, xRank.begin());
+	rankAvg(yFirst, std::next(yFirst, len), yRank.begin());
+	return correlPearson<_OutTy>(xRank.begin(), xRank.end(), yRank.begin());
+}

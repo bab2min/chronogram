@@ -335,11 +335,18 @@ int main(int argc, char* argv[])
 		string line;
 		cout << "== Evaluating semantic shift : " << args.evalShift 
 			<< " between " << args.timeA << " and " << args.timeB << " ==" << endl;
+		vector<float> refScores, sysScores;
 		while (getline(ifs, line))
 		{
-			auto v = tgm.getEmbedding(line);
-			auto u1 = tgm.getEmbedding(line, args.timeA), u2 = tgm.getEmbedding(line, args.timeB);
-			float s;
+			istringstream iss{ line };
+			string word;
+			float score = INFINITY, s;
+			getline(iss, word, '\t');
+			iss >> score;
+			if (word.empty()) continue;
+
+			auto v = tgm.getEmbedding(word);
+			auto u1 = tgm.getEmbedding(word, args.timeA), u2 = tgm.getEmbedding(word, args.timeB);
 			if (args.shiftMetric == "l2")
 			{
 				s = (u1 - u2).norm();
@@ -349,9 +356,19 @@ int main(int argc, char* argv[])
 				s = (v * args.mixed + u1 * (1 - args.mixed)).normalized().dot(
 					(v * args.mixed + u2 * (1 - args.mixed)).normalized());
 			}
-			cout << line << '\t' << s << endl;
+			cout << word << '\t' << s << endl;
+			if (isfinite(score))
+			{
+				refScores.emplace_back(score);
+				sysScores.emplace_back(s);
+			}
 		}
 		cout << endl;
+		if (!refScores.empty())
+		{
+			cout << "Pearson Correl: " << correlPearson<float>(refScores.begin(), refScores.end(), sysScores.begin()) << endl;
+			cout << "Spearman Correl: " << correlSpearman<float>(refScores.begin(), refScores.end(), sysScores.begin()) << endl;
+		}
 	}
 
 	if (!args.evalCTA.empty())
