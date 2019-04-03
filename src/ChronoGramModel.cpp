@@ -96,9 +96,9 @@ float ChronoGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative
 	auto outcol = out.col(y);
 	VectorXf inSum = _Fixed ? in.col(x * L) : makeTimedVector(x, lWeight);
 	float f = inSum.dot(outcol);
-	float pr = logsigmoid(f * (negative ? -1 : 1));
+	float pr = logsigmoid(f * (negative ? -1 : 1)) * (1 - zeta);
 
-	float d = (negative ? 0 : 1) - sigmoid(f);
+	float d = ((negative ? 0 : 1) - sigmoid(f)) * (1 - zeta);
 	float g = lr * d;
 
 	VectorXf in_grad = g * outcol;
@@ -123,9 +123,9 @@ float ChronoGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool nega
 	auto outcol = out.col(y);
 	VectorXf inSum = _Fixed ? in.col(x * L) : makeTimedVector(x, lWeight);
 	float f = inSum.dot(outcol);
-	float pr = logsigmoid(f * (negative ? -1 : 1));
+	float pr = logsigmoid(f * (negative ? -1 : 1)) * (1 - zeta);
 
-	float d = (negative ? 0 : 1) - sigmoid(f);
+	float d = ((negative ? 0 : 1) - sigmoid(f)) * (1 - zeta);
 	float g = lr * d;
 
 	xGrad += g * outcol;
@@ -143,12 +143,12 @@ float ChronoGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWe
 	d log (1-P(x|t)) / dx = -x * l
 	*/
 	auto gPos = makeTimedVector(x, lWeight);
-	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5f);
+	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5f) * zeta;
 	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-3;
-	pr += -avgTimeSqNorm(x) * lambda * timeNegativeWeight;
+	pr += -avgTimeSqNorm(x) * lambda * timeNegativeWeight * zeta;
 
-	in.block(0, x * L, M, L) += gPos * lWeight.transpose() * lambda * lr;
-	in.block(0, x * L, M, L) += -in.block(0, x * L, M, L) * avgNegMatrix * timeNegativeWeight * lambda * lr;
+	in.block(0, x * L, M, L) += gPos * lWeight.transpose() * lambda * lr * zeta;
+	in.block(0, x * L, M, L) += -in.block(0, x * L, M, L) * avgNegMatrix * timeNegativeWeight * lambda * lr * zeta;
 	return pr;
 }
 
@@ -203,26 +203,33 @@ void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoin
 		float llSum = 0;
 		size_t llCnt = 0;
 		// update in, out vector
-		for (auto j = jBegin; j <= jEnd; ++j)
+		if (zeta < 1)
 		{
-			if (i == j) continue;
-			if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
-			float ll = inplaceUpdate<_Fixed>(x, ws[j], lr1 * (1 - zeta), false, coef);
-			assert(isfinite(ll));
-			for (size_t k = 0; k < negativeSampleSize; ++k)
+			for (auto j = jBegin; j <= jEnd; ++j)
 			{
-				uint32_t ns = unigramTable(globalData.rg);
-				while (ns == ws[j]) ns = unigramTable(globalData.rg);
-				ll += inplaceUpdate<_Fixed>(x, ns, lr1 * (1 - zeta), true, coef);
+				if (i == j) continue;
+				if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
+				float ll = inplaceUpdate<_Fixed>(x, ws[j], lr1, false, coef);
 				assert(isfinite(ll));
+				for (size_t k = 0; k < negativeSampleSize; ++k)
+				{
+					uint32_t ns = unigramTable(globalData.rg);
+					while (ns == ws[j]) ns = unigramTable(globalData.rg);
+					ll += inplaceUpdate<_Fixed>(x, ns, lr1, true, coef);
+					assert(isfinite(ll));
+				}
+				llCnt++;
+				llSum += ll;
 			}
-			llCnt++;
-			llSum += ll * (1 - zeta);
+		}
+		else
+		{
+			llCnt += jEnd - jBegin - 1;
 		}
 
 		if (!_Fixed && zeta > 0 && !fixedWords.count(x))
 		{
-			llSum += inplaceTimeUpdate(x, lr1 * zeta, coef);
+			llSum += inplaceTimeUpdate(x, lr1, coef);
 		}
 
 		if (llCnt)
@@ -271,37 +278,44 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 		updateIn.setZero();
 
 		// update in, out vector
-		for (auto j = jBegin; j <= jEnd; ++j)
+		if (zeta < 1)
 		{
-			if (i == j) continue;
-			if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
-			if (ld.updateOutIdx.find(ws[j]) == ld.updateOutIdx.end())
-				ld.updateOutIdx.emplace(ws[j], ld.updateOutIdx.size());
-
-			float ll = getUpdateGradient<_Fixed>(x, ws[j], lr1 * (1 - zeta), false, coef,
-				updateIn.col(0),
-				ld.updateOutMat.col(ld.updateOutIdx[ws[j]]));
-			assert(isfinite(ll));
-			for (size_t k = 0; k < negativeSampleSize; ++k)
+			for (auto j = jBegin; j <= jEnd; ++j)
 			{
-				uint32_t ns = unigramTable(ld.rg);
-				while (ns == ws[j]) ns = unigramTable(ld.rg);
-				if (ld.updateOutIdx.find(ns) == ld.updateOutIdx.end())
-					ld.updateOutIdx.emplace(ns, ld.updateOutIdx.size());
+				if (i == j) continue;
+				if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
+				if (ld.updateOutIdx.find(ws[j]) == ld.updateOutIdx.end())
+					ld.updateOutIdx.emplace(ws[j], ld.updateOutIdx.size());
 
-				ll += getUpdateGradient<_Fixed>(x, ns, lr1 * (1 - zeta), true, coef,
+				float ll = getUpdateGradient<_Fixed>(x, ws[j], lr1, false, coef,
 					updateIn.col(0),
-					ld.updateOutMat.col(ld.updateOutIdx[ns]));
+					ld.updateOutMat.col(ld.updateOutIdx[ws[j]]));
 				assert(isfinite(ll));
+				for (size_t k = 0; k < negativeSampleSize; ++k)
+				{
+					uint32_t ns = unigramTable(ld.rg);
+					while (ns == ws[j]) ns = unigramTable(ld.rg);
+					if (ld.updateOutIdx.find(ns) == ld.updateOutIdx.end())
+						ld.updateOutIdx.emplace(ns, ld.updateOutIdx.size());
+
+					ll += getUpdateGradient<_Fixed>(x, ns, lr1, true, coef,
+						updateIn.col(0),
+						ld.updateOutMat.col(ld.updateOutIdx[ns]));
+					assert(isfinite(ll));
+				}
+				llCnt++;
+				llSum += ll;
 			}
-			llCnt++;
-			llSum += ll * (1 - zeta);
+		}
+		else
+		{
+			llCnt += jEnd - jBegin - 1;
 		}
 		
 		updateInBlock.setZero();
 		if (!_Fixed && zeta > 0 && !fixedWords.count(x))
 		{
-			llSum += getTimeUpdateGradient(x, lr1 * zeta, coef, updateInBlock.block(0, 0, M, L)) * zeta;
+			llSum += getTimeUpdateGradient(x, lr1, coef, updateInBlock.block(0, 0, M, L));
 		}
 
 		{

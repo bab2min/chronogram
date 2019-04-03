@@ -122,7 +122,7 @@ int main(int argc, char* argv[])
 			}
 			if (result.count("help"))
 			{
-				cout << options.help({ "", "Text Dating", "Semantic Shift", "Google Ngram" }) << endl;
+				cout << options.help({ "", "Text Dating", "Semantic Shift", "Google Ngram", "Cross Temporal Analogy" }) << endl;
 				return 0;
 			}
 
@@ -406,7 +406,7 @@ int main(int argc, char* argv[])
 				if (get<0>(res[rank]) == right) break;
 			}
 
-			if (rank < 10)
+			if (rank < 10 && rank < res.size())
 			{
 				for (size_t i = 0; i < at.size(); ++i)
 				{
