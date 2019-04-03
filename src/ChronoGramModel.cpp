@@ -767,6 +767,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 			if (!fixed) trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
 		}
 		collections.clear();
+		ngrams.clear();
 		timePoints.clear();
 
 		float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
