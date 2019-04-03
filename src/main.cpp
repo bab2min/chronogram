@@ -36,6 +36,7 @@ struct Args
 	float timePrior = 0;
 	float subsampling = 1e-4f;
 	bool compressed = true;
+	bool recountVocabs = false;
 	bool semEval = false;
 
 	string evalShift, shiftMetric;
@@ -75,6 +76,7 @@ int main(int argc, char* argv[])
 			("lambda", "", cxxopts::value<float>())
 			("p,padding", "", cxxopts::value<float>())
 			("ss", "Sub-Samping", cxxopts::value<float>())
+			("rv", "recount vocabs", cxxopts::value<int>()->implicit_value("1"))
 
 			("compressed", "Save as compressed", cxxopts::value<int>(), "default = 1")
 			("semEval", "Print SemEval2015 Task7 Result", cxxopts::value<int>()->implicit_value("1"))
@@ -144,6 +146,7 @@ int main(int argc, char* argv[])
 			READ_OPT(minT, float);
 			READ_OPT(maxT, float);
 			READ_OPT2(ss, subsampling, float);
+			READ_OPT2(rv, recountVocabs, int);
 
 			READ_OPT(maxItem, size_t);
 
@@ -287,6 +290,13 @@ int main(int argc, char* argv[])
 			}, args.minT, args.maxT);
 
 			cout << "Vocab Size: " << tgm.getVocabs().size() << endl;
+			if (args.recountVocabs)
+			{
+				cout << "Recounting vocabs in time range [" << args.minT << ", " << args.maxT << "]" << endl;
+				GNgramBinaryReader reader{ args.ngram };
+				cout << "Recounted Vocab Size: " <<
+					tgm.recountVocab(bind(&GNgramBinaryReader::operator(), &reader, placeholders::_1), args.minT, args.maxT, 0) << endl;
+			}
 		}
 
 		if(!args.fixed.empty())

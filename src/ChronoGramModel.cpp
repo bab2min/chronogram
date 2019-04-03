@@ -488,6 +488,65 @@ void ChronoGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader
 	buildModel();
 }
 
+size_t ChronoGramModel::recountVocab(const std::function<ReadResult(size_t)>& reader, float minT, float maxT, size_t numWorkers)
+{
+	if (!numWorkers) numWorkers = thread::hardware_concurrency();
+	vector<vector<uint64_t>> counters(numWorkers);
+	for (auto& c : counters) c.resize(vocabs.size());
+	{
+		ThreadPool workers(numWorkers, numWorkers * 16);
+		vector<string> words;
+		for (size_t id = 0; ; ++id)
+		{
+			auto res = reader(id);
+			if (res.stop) break;
+			if (res.words.empty()) continue;
+			if (res.timePoint < minT) continue;
+			if (res.timePoint > maxT) continue;
+			words.insert(words.end(), make_move_iterator(res.words.begin()), make_move_iterator(res.words.end()));
+			workers.enqueue([&](size_t tId, const vector<string>& words)
+			{
+				for (auto& w : words)
+				{
+					int id = vocabs.get(w);
+					if(id >= 0) ++counters[tId][id];
+				}
+			}, move(words));
+		}
+	}
+
+	frequencies = counters[0];
+	for (size_t i = 1; i < numWorkers; ++i)
+	{
+		for (size_t n = 0; n < frequencies.size(); ++n) frequencies[n] += counters[i][n];
+	}
+	buildTable();
+	return count_if(frequencies.begin(), frequencies.end(), [](auto e) { return e; });
+}
+
+
+size_t ChronoGramModel::recountVocab(const std::function<GNgramReadResult(size_t)>& reader, float minT, float maxT, size_t numWorkers)
+{
+	if (!numWorkers) numWorkers = thread::hardware_concurrency();
+	fill(frequencies.begin(), frequencies.end(), 0);
+	for (size_t id = 0; ; ++id)
+	{
+		auto res = reader(id);
+		if (res.yearCnt.empty()) break;
+		for (auto& yc : res.yearCnt)
+		{
+			if (yc.first < minT) continue;
+			if (yc.first > maxT) continue;
+			if (res.ngram[0] != (uint32_t)-1) frequencies[res.ngram[0]] += yc.second;
+			if (res.ngram[4] != (uint32_t)-1) frequencies[res.ngram[4]] += yc.second;
+		}
+	}
+
+	buildTable();
+	return count_if(frequencies.begin(), frequencies.end(), [](auto e) { return e; });
+}
+
+
 bool ChronoGramModel::addFixedWord(const std::string & word)
 {
 	size_t wv = vocabs.get(word);
@@ -959,11 +1018,11 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 	vector<pair<float, float>> sim(V);
 	for (size_t v = 0; v < V; ++v)
 	{
-		/*if (uniqs.count(v))
+		if (!frequencies[v])
 		{
-			sim(v) = -INFINITY;
+			sim[v] = make_pair(-INFINITY, 0);
 			continue;
-		}*/
+		}
 		VectorXf tv = makeTimedVector(v, coef);
 		float wPrior = getWordProbByTime(v, tv);
 		if (wPrior / (tPrior + bias) < threshold)
@@ -1013,7 +1072,7 @@ vector<tuple<string, float>> ChronoGramModel::mostSimilarStatic(
 	VectorXf sim(V);
 	for (size_t v = 0; v < V; ++v)
 	{
-		if (uniqs.count(v))
+		if (uniqs.count(v) || !frequencies[v])
 		{
 			sim(v) = -INFINITY;
 			continue;

@@ -237,6 +237,8 @@ public:
 	}
 
 	void buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt = 10, size_t numWorkers = 0);
+	size_t recountVocab(const std::function<ReadResult(size_t)>& reader, float minT, float maxT, size_t numWorkers);
+	size_t recountVocab(const std::function<GNgramReadResult(size_t)>& reader, float minT, float maxT, size_t numWorkers);
 	bool addFixedWord(const std::string& word);
 	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
 		size_t windowLen = 4, float fixedInit = 0.f,
