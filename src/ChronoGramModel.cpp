@@ -143,8 +143,8 @@ float ChronoGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWe
 	d log (1-P(x|t)) / dx = -x * l
 	*/
 	auto gPos = makeTimedVector(x, lWeight);
-	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5f) * zeta;
-	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-3;
+	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-4f) * zeta;
+	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-4f;
 	pr += -avgTimeSqNorm(x) * lambda * timeNegativeWeight * zeta;
 
 	in.block(0, x * L, M, L) += gPos * lWeight.transpose() * lambda * lr * zeta;
@@ -162,8 +162,8 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const Eigen::Ve
 	d log (1-P(x|t)) / dx = -x * l
 	*/
 	auto gPos = makeTimedVector(x, lWeight);
-	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-5f);
-	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-3;
+	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-4f);
+	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-4f;
 	pr += -avgTimeSqNorm(x) * lambda * timeNegativeWeight;
 
 	grad += gPos * lWeight.transpose() * lambda * lr;
@@ -1459,7 +1459,7 @@ float ChronoGramModel::LLEvaluater::operator()(float timePoint) const
 	auto tCoef = makeCoef(tgm.L, timePoint);
 	auto defaultPrior = [&](float)->float
 	{
-		return log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-5f);
+		return log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-4f);
 	};
 
 	float ll = (timePrior ? timePrior : defaultPrior)(tgm.unnormalizedTimePoint(timePoint)) * timePriorWeight;
@@ -1470,11 +1470,11 @@ float ChronoGramModel::LLEvaluater::operator()(float timePoint) const
 		const uint32_t x = wordIds[i];
 		if (x == (uint32_t)-1) continue;
 		auto& cx = coefs.find(x)->second;
-		size_t jBegin = 0, jEnd = N;
+		size_t jBegin = 0, jEnd = N - 1;
 		if (i > windowLen) jBegin = i - windowLen;
 		if (i + windowLen < N) jEnd = i + windowLen;
 
-		for (size_t j = jBegin; j < jEnd; ++j)
+		for (size_t j = jBegin; j <= jEnd; ++j)
 		{
 			if (i == j) continue;
 			const uint32_t y = wordIds[j];
@@ -1484,7 +1484,7 @@ float ChronoGramModel::LLEvaluater::operator()(float timePoint) const
 			count[x]++;
 		}
 
-		ll += log(1 - exp(-tgm.makeTimedVector(x, tCoef).squaredNorm() / 2 * tgm.lambda)) * tgm.zeta;
+		ll += log(1 - exp(-tgm.makeTimedVector(x, tCoef).squaredNorm() / 2 * tgm.lambda) + 1e-4f) * tgm.zeta;
 	}
 
 	if (nsQ)
@@ -1526,11 +1526,11 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
 		const uint32_t x = wordIds[i];
 		if (x == (uint32_t)-1) continue;
 		auto& cx = coefs.find(x)->second;
-		size_t jBegin = 0, jEnd = N;
+		size_t jBegin = 0, jEnd = N - 1;
 		if (i > windowLen) jBegin = i - windowLen;
 		if (i + windowLen < N) jEnd = i + windowLen;
 
-		for (size_t j = jBegin; j < jEnd; ++j)
+		for (size_t j = jBegin; j <= jEnd; ++j)
 		{
 			if (i == j) continue;
 			const uint32_t y = wordIds[j];
@@ -1544,8 +1544,8 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
 
 		auto v = tgm.makeTimedVector(x, tCoef);
 		float sqn = v.squaredNorm() / 2 * tgm.lambda, sd;
-		ll += log(1 - exp(-sqn)) * tgm.zeta; 
-		dll += v.dot(tgm.in.block(0, x * tgm.L + 1, tgm.M, tgm.L - 1) * tDCoef) * tgm.lambda / (sd = exp(sqn) - 1 + 1e-3f) * tgm.zeta;
+		ll += log(1 - exp(-sqn) + 1e-4f) * tgm.zeta;
+		dll += v.dot(tgm.in.block(0, x * tgm.L + 1, tgm.M, tgm.L - 1) * tDCoef) * tgm.lambda / (sd = exp(sqn) - 1 + 1e-4f) * tgm.zeta;
 	}
 
 	if (nsQ)
