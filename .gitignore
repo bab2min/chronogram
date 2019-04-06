@@ -288,3 +288,6 @@ __pycache__/
 *.cg
 /cg.nyt
 /semanticChange.txt
+/SETrain.txt
+/SEGold.txt.result
+/SEGold.txt

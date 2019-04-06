@@ -27,12 +27,12 @@ struct Args
 	float minT = INFINITY, maxT = -INFINITY;
 	vector<string> input;
 	int worker = 0, window = 4, dimension = 100;
-	int order = 5, epoch = 1, negative = 5;
+	int order = 5, epoch = 1, negative = 5, temporalSample = 5;
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
 	int nsQ = 8, initStep = 8;
 	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
-	float timeNegative = 1.f, fixedInit = 0, threshold = 0.0025f;
+	float fixedInit = 0, threshold = 0.0025f;
 	float timePrior = 0;
 	float subsampling = 1e-4f;
 	bool compressed = true;
@@ -66,7 +66,7 @@ int main(int argc, char* argv[])
 			("r,order", "Order of Chebyshev Polynomial", cxxopts::value<int>())
 			("e,epoch", "Number of Epoch", cxxopts::value<int>())
 			("n,negative", "Negative Sampling Size", cxxopts::value<int>())
-			("T,timeNegative", "Time Negative Weight", cxxopts::value<float>())
+			("T,ts", "Time Negative Weight", cxxopts::value<int>())
 			("F,fixedInit", "Fixed Initializing Weight", cxxopts::value<float>())
 			("b,batch", "Batch Docs Size", cxxopts::value<int>())
 			("t,minCnt", "Min Count Threshold of Word", cxxopts::value<int>())
@@ -175,7 +175,7 @@ int main(int argc, char* argv[])
 			READ_OPT(zeta, float);
 			READ_OPT(lambda, float);
 			READ_OPT(padding, float);
-			READ_OPT(timeNegative, float);
+			READ_OPT2(ts, temporalSample, int);
 			READ_OPT(fixedInit, float);
 			READ_OPT(threshold, float);
 			READ_OPT(timePrior, float);
@@ -208,7 +208,7 @@ int main(int argc, char* argv[])
 	}
 
 	ChronoGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative,
-		args.timeNegative, args.eta, args.zeta, args.lambda };
+		(size_t)args.temporalSample, args.eta, args.zeta, args.lambda };
 	if (args.padding >= 0)
 	{
 		tgm.setPadding(args.padding);
@@ -229,7 +229,7 @@ int main(int argc, char* argv[])
 		cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
 		cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << "\tLambda: " << args.lambda << endl;
-		cout << "Padding: " << tgm.getPadding() << "\tTime Negative Weight: " << args.timeNegative << "\tFixed Initializing Weight: " << args.fixedInit << endl;
+		cout << "Padding: " << tgm.getPadding() << "\tTemporal Sampling: " << args.temporalSample << "\tFixed Initializing Weight: " << args.fixedInit << endl;
 
 		if (args.ngram.empty())
 		{

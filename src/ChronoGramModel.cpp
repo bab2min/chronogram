@@ -62,34 +62,6 @@ VectorXf ChronoGramModel::makeTimedVector(size_t wv, const VectorXf& coef) const
 	return in.block(0, wv * L, M, L) * coef;
 }
 
-float ChronoGramModel::avgTimeSqNorm(size_t wv) const
-{
-	float ret = 0;
-	for (size_t l = 0; l < L; ++l)
-	{
-		ret += in.col(wv * L + l).squaredNorm() * integratedSqChebyshevT(l);
-		for (size_t m = 0; m < l; ++m)
-		{
-			ret += 2 * in.col(wv * L + l).dot(in.col(wv * L + m)) * integratedChebyshevTT(l, m);
-		}
-	}
-	return ret;
-}
-
-float ChronoGramModel::avgTimePrior() const
-{
-	float ret = 0;
-	for (size_t l = 0; l < L; ++l)
-	{
-		ret += pow(timePrior[l], 2) * integratedSqChebyshevT(l);
-		for (size_t m = 0; m < l; ++m)
-		{
-			ret += 2 * timePrior[l] * timePrior[m] * integratedChebyshevTT(l, m);
-		}
-	}
-	return ret;
-}
-
 template<bool _Fixed>
 float ChronoGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative, const VectorXf& lWeight)
 {
@@ -133,54 +105,110 @@ float ChronoGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool nega
 	return max(pr, -100.f);
 }
 
-float ChronoGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWeight)
+float ChronoGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWeight, 
+	const vector<const VectorXf*>& randSampleWeight)
 {
 	/*
-	log P(x|t) = log(1 - exp(-x^2/2 * l))
-	d log P(x|t) / dx = lx / (exp(x^2/2 * l) - 1)
+	s = int(1 - exp(-|a Tv|^2/2))
+	P = (1 - exp(-|a.Tv|^2/2)) / s
 
-	log (1-P(x|t)) = log(exp(-x^2/2 * l)) = -x^2/2 * l
-	d log (1-P(x|t)) / dx = -x * l
+	log P = log(1 - exp(-|a.Tv|^2/2)) - log(s)
+	d log(1 - exp(-|a.Tv|^2/2)) / da = 1 / (1 - exp(-|a.Tv|^2/2)) (-exp(-|a.Tv|^2/2)) (-a.Tv) . Tv^T
+		= (a.Tv . Tv^T / (exp(|a.Tv|^2/2) - 1))
+
+	d log(s) / da = d log(s) / ds * ds / da = 1 / s * ds / da
+	ds/da = int(a.Tv . Tv^T * exp(-|a.Tv|^2/2))
+	d log P / da = (a.Tv . Tv^T / (exp(|a.Tv|^2/2) - 1)) - int(a.Tv . Tv^T * exp(-|a.Tv|^2/2)) / s
 	*/
-	auto gPos = makeTimedVector(x, lWeight);
-	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-4f) * zeta;
-	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-4f;
-	pr += -avgTimeSqNorm(x) * lambda * timeNegativeWeight * zeta;
-
-	in.block(0, x * L, M, L) += gPos * lWeight.transpose() * lambda * lr * zeta;
-	in.block(0, x * L, M, L) += -in.block(0, x * L, M, L) * avgNegMatrix * timeNegativeWeight * lambda * lr * zeta;
-	return pr;
+	auto atv = makeTimedVector(x, lWeight);
+	float expTerm = exp(-atv.squaredNorm() / 2 * lambda);
+	float ll = log(1 - expTerm + 1e-5f);
+	auto d = atv * lWeight.transpose() * expTerm / (1 - expTerm + 1e-5f) * lambda;
+	float s = 0;
+	MatrixXf nd = MatrixXf::Zero(M, L);
+	for (auto& r : randSampleWeight)
+	{
+		auto atv = makeTimedVector(x, *r);
+		float expTerm = exp(-atv.squaredNorm() / 2 * lambda);
+		nd += atv * r->transpose() * expTerm * lambda;
+		s += 1 - expTerm;
+	}
+	s /= randSampleWeight.size();
+	nd /= randSampleWeight.size();
+	ll -= log(s);
+	in.block(0, x*L, M, L) -= -(d - nd / s) * lr;
+	return ll;
 }
 
-float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const Eigen::VectorXf & lWeight, Eigen::Block<Eigen::MatrixXf> grad)
+float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const VectorXf & lWeight,
+	const vector<const VectorXf*>& randSampleWeight, Block<MatrixXf> grad)
 {
 	/*
-	log P(x|t) = log(1 - exp(-x^2/2 * l))
-	d log P(x|t) / dx = lx / (exp(x^2/2 * l) - 1)
+	s = int(1 - exp(-|a Tv|^2/2))
+    P = (1 - exp(-|a.Tv|^2/2)) / s
 
-	log (1-P(x|t)) = log(exp(-x^2/2 * l)) = -x^2/2 * l
-	d log (1-P(x|t)) / dx = -x * l
+    log P = log(1 - exp(-|a.Tv|^2/2)) - log(s)
+    d log(1 - exp(-|a.Tv|^2/2)) / da = 1 / (1 - exp(-|a.Tv|^2/2)) (-exp(-|a.Tv|^2/2)) (-a.Tv) . Tv^T
+        = (a.Tv . Tv^T / (exp(|a.Tv|^2/2) - 1))
+
+    d log(s) / da = d log(s) / ds * ds / da = 1 / s * ds / da
+    ds/da = int(a.Tv . Tv^T * exp(-|a.Tv|^2/2))
+    d log P / da = (a.Tv . Tv^T / (exp(|a.Tv|^2/2) - 1)) - int(a.Tv . Tv^T * exp(-|a.Tv|^2/2)) / s
 	*/
-	auto gPos = makeTimedVector(x, lWeight);
-	float pr = log(1 - exp(-gPos.squaredNorm() / 2 * lambda) + 1e-4f);
-	gPos /= exp(gPos.squaredNorm() / 2 * lambda) - 1 + 1e-4f;
-	pr += -avgTimeSqNorm(x) * lambda * timeNegativeWeight;
-
-	grad += gPos * lWeight.transpose() * lambda * lr;
-	grad += -in.block(0, x * L, M, L) * avgNegMatrix * timeNegativeWeight * lambda * lr;
-	return pr;
+	auto atv = makeTimedVector(x, lWeight);
+	float expTerm = exp(-atv.squaredNorm() / 2 * lambda);
+	float ll = log(1 - expTerm + 1e-5f);
+	auto d = atv * lWeight.transpose() * expTerm / (1 - expTerm + 1e-5f) * lambda;
+	float s = 0;
+	MatrixXf nd = MatrixXf::Zero(M, L);
+	for (auto& r : randSampleWeight)
+	{
+		auto atv = makeTimedVector(x, *r);
+		float expTerm = exp(-atv.squaredNorm() / 2 * lambda);
+		nd += atv * r->transpose() * expTerm * lambda;
+		s += 1 - expTerm;
+	}
+	s /= randSampleWeight.size();
+	nd /= randSampleWeight.size();
+	ll -= log(s);
+	grad -= -(d - nd/s) * lr;
+	return ll;
 }
 
 
-float ChronoGramModel::updateTimePrior(float lr, const Eigen::VectorXf & lWeight)
+float ChronoGramModel::updateTimePrior(float lr, const VectorXf & lWeight, const vector<const VectorXf*>& randSampleWeight)
 {
+	/*
+	s = int(1 - exp(-|a Tv|^2/2))
+	P = (1 - exp(-|a.Tv|^2/2)) / s
+
+	log P = log(1 - exp(-|a.Tv|^2/2)) - log(s)
+	d log(1 - exp(-|a.Tv|^2/2)) / da = 1 / (1 - exp(-|a.Tv|^2/2)) (-exp(-|a.Tv|^2/2)) (-a.Tv) * Tv
+		= (Tv * a.Tv / (exp(|a.Tv|^2/2) - 1))
+
+	d log(s) / da = d log(s) / ds * ds / da = 1 / s * ds / da
+	ds/da = int(Tv * a.Tv * exp(-|a.Tv|^2/2))
+	d log P / da = (Tv * a.Tv / (exp(|a.Tv|^2/2) - 1)) - int(Tv * a.Tv * exp(-|a.Tv|^2/2)) / s
+	*/
 	float p = timePrior.dot(lWeight);
-	float pr = log(1 - exp(-p * p / 2) + 1e-5f);
-	p /= exp(p * p / 2) - 1 + 1e-3f;
-	pr += -avgTimePrior() * timeNegativeWeight;
-	timePrior += p * lWeight * lr;
-	timePrior -= avgNegMatrix * timePrior * timeNegativeWeight * lr;
-	return pr;
+	float expTerm = exp(-p * p / 2);
+	float ll = log(1 - expTerm + 1e-5f);
+	auto d = lWeight * p * expTerm / (1 - expTerm + 1e-5f);
+	float s = 0;
+	VectorXf nd = VectorXf::Zero(L);
+	for (auto& r : randSampleWeight)
+	{
+		float dot = timePrior.dot(*r);
+		float expTerm = exp(-dot * dot / 2);
+		nd += *r * dot * expTerm;
+		s += 1 - expTerm;
+	}
+	s /= randSampleWeight.size();
+	nd /= randSampleWeight.size();
+	ll -= log(s);
+	timePrior -= -(d - nd/s) * lr;
+	assert(isfinite(ll));
+	return ll;
 }
 
 template<bool _Fixed, bool _GNgramMode>
@@ -229,7 +257,17 @@ void ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoin
 
 		if (!_Fixed && zeta > 0 && !fixedWords.count(x))
 		{
-			llSum += inplaceTimeUpdate(x, lr1, coef);
+			vector<VectorXf> randSampleWeight;
+			vector<const VectorXf*> randSampleWeightP;
+			for (size_t i = 0; i < temporalSample; ++i)
+			{
+				randSampleWeight.emplace_back(makeCoef(L, generate_canonical<float, 16>(globalData.rg)));
+			}
+			for (size_t i = 0; i < temporalSample; ++i)
+			{
+				randSampleWeightP.emplace_back(&randSampleWeight[i]);
+			}
+			llSum += inplaceTimeUpdate(x, lr1, coef, randSampleWeightP);
 		}
 
 		if (llCnt)
@@ -315,7 +353,19 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 		updateInBlock.setZero();
 		if (!_Fixed && zeta > 0 && !fixedWords.count(x))
 		{
-			llSum += getTimeUpdateGradient(x, lr1, coef, updateInBlock.block(0, 0, M, L));
+			vector<VectorXf> randSampleWeight;
+			vector<const VectorXf*> randSampleWeightP;
+			for (size_t i = 0; i < temporalSample; ++i)
+			{
+				randSampleWeight.emplace_back(makeCoef(L, generate_canonical<float, 16>(ld.rg)));
+			}
+			for (size_t i = 0; i < temporalSample; ++i)
+			{
+				randSampleWeightP.emplace_back(&randSampleWeight[i]);
+			}
+			llSum += getTimeUpdateGradient(x, lr1, coef, 
+				randSampleWeightP,
+				updateInBlock.block(0, 0, M, L));
 		}
 
 		{
@@ -367,18 +417,35 @@ void ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float tim
 void ChronoGramModel::trainTimePrior(const float * ts, size_t N, float lr, size_t report)
 {
 	unordered_map<float, VectorXf> coefMap;
+	vector<float> randSample(temporalSample);
+	vector<const VectorXf*> randSampleWeight(temporalSample);
 	for (size_t i = 0; i < N; ++i)
 	{
-		float c_lr = max(lr * (1 - procTimePoints / (totalTimePoints + 1.f)), lr * 1e-4f);
+		for (size_t r = 0; r < temporalSample; ++r)
+		{
+			randSample[r] = generate_canonical<float, 16>(globalData.rg);
+			if (!coefMap.count(randSample[r])) coefMap.emplace(randSample[r], makeCoef(L, randSample[r]));
+		}
+		float c_lr = max(lr * (1 - procTimePoints / (totalTimePoints + 1.f)), lr * 1e-4f) * 0.1f;
 		auto it = coefMap.find(ts[i]);
 		if (it == coefMap.end()) it = coefMap.emplace(ts[i], makeCoef(L, normalizedTimePoint(ts[i]))).first;
-		float ll = updateTimePrior(c_lr, it->second);
+		for (size_t r = 0; r < temporalSample; ++r)
+		{
+			randSampleWeight[r] = &coefMap.find(randSample[r])->second;
+		}
+		
+		float ll = updateTimePrior(c_lr, it->second, randSampleWeight);
 		procTimePoints++;
 		timeLLCnt++;
 		timeLL += (ll - timeLL) / timeLLCnt;
 		if (report && procTimePoints % report == 0)
 		{
 			fprintf(stderr, "timePrior LL: %.4f\n", timeLL);
+			/*for (size_t r = 0; r < L; ++r)
+			{
+				fprintf(stderr, "%.4f ", timePrior[r]);
+			}
+			fprintf(stderr, "\n");*/
 		}
 	}
 }
@@ -1484,7 +1551,7 @@ float ChronoGramModel::LLEvaluater::operator()(float timePoint) const
 			count[x]++;
 		}
 
-		ll += log(1 - exp(-tgm.makeTimedVector(x, tCoef).squaredNorm() / 2 * tgm.lambda) + 1e-4f) * tgm.zeta;
+		ll += log(1 - exp(-tgm.makeTimedVector(x, tCoef).squaredNorm() / 2 * tgm.lambda) + 1e-5f) * tgm.zeta;
 	}
 
 	if (nsQ)
@@ -1544,8 +1611,8 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
 
 		auto v = tgm.makeTimedVector(x, tCoef);
 		float sqn = v.squaredNorm() / 2 * tgm.lambda, sd;
-		ll += log(1 - exp(-sqn) + 1e-4f) * tgm.zeta;
-		dll += v.dot(tgm.in.block(0, x * tgm.L + 1, tgm.M, tgm.L - 1) * tDCoef) * tgm.lambda / (sd = exp(sqn) - 1 + 1e-4f) * tgm.zeta;
+		ll += log(1 - exp(-sqn) + 1e-5f) * tgm.zeta;
+		dll += v.dot(tgm.in.block(0, x * tgm.L + 1, tgm.M, tgm.L - 1) * tDCoef) * tgm.lambda / (sd = exp(sqn) - 1 + 1e-5f) * tgm.zeta;
 	}
 
 	if (nsQ)

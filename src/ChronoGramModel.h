@@ -123,8 +123,6 @@ private:
 	float timePriorScale = 1;
 	Eigen::VectorXf timePrior; // (L, 1)
 	Eigen::VectorXf vEta;
-	Eigen::VectorXf avgNegCoef;
-	Eigen::MatrixXf avgNegMatrix;
 
 	size_t totalWords = 0, totalTimePoints = 0;
 	size_t procWords = 0, lastProcWords = 0, procTimePoints = 0;
@@ -136,8 +134,7 @@ private:
 
 	std::vector<float> unigramDist;
 	std::discrete_distribution<uint32_t> unigramTable;
-	size_t negativeSampleSize = 0;
-	float timeNegativeWeight;
+	size_t negativeSampleSize = 0, temporalSample = 0;
 
 	Timer timer;
 
@@ -147,9 +144,6 @@ private:
 	static Eigen::VectorXf makeDCoef(size_t L, float z);
 	Eigen::VectorXf makeTimedVector(size_t wv, const Eigen::VectorXf& coef) const;
 
-	float avgTimeSqNorm(size_t wv) const;
-	float avgTimePrior() const;
-
 	template<bool _Fixed = false>
 	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight);
 
@@ -157,11 +151,14 @@ private:
 	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
-	float inplaceTimeUpdate(size_t x, float lr, const Eigen::VectorXf& lWeight);
+
+	float inplaceTimeUpdate(size_t x, float lr, const Eigen::VectorXf& lWeight, 
+		const std::vector<const Eigen::VectorXf*>& randSampleWeight);
 	float getTimeUpdateGradient(size_t x, float lr, const Eigen::VectorXf& lWeight,
+		const std::vector<const Eigen::VectorXf*>& randSampleWeight,
 		Eigen::Block<Eigen::MatrixXf> grad);
 
-	float updateTimePrior(float lr, const Eigen::VectorXf& lWeight);
+	float updateTimePrior(float lr, const Eigen::VectorXf& lWeight, const std::vector<const Eigen::VectorXf*>& randSampleWeight);
 
 	void buildModel();
 	void buildTable();
@@ -181,21 +178,16 @@ private:
 	float getWordProbByTime(uint32_t w, float timePoint) const;
 public:
 	ChronoGramModel(size_t _M = 100, size_t _L = 6,
-		float _subsampling = 1e-4f, size_t _negativeSampleSize = 5, float _timeNegativeWeight = 5.f,
+		float _subsampling = 1e-4f, size_t _negativeSampleSize = 5, size_t _timeNegativeSample = 5,
 		float _eta = 1.f, float _zeta = .5f, float _lambda = .1f,
 		size_t seed = std::random_device()())
 		: M(_M), L(_L), subsampling(_subsampling), eta(_eta), zeta(_zeta), lambda(_lambda),
-		timeNegativeWeight(_timeNegativeWeight), vEta(Eigen::VectorXf::Constant(_L, _eta)),
-		negativeSampleSize(_negativeSampleSize)
+		vEta(Eigen::VectorXf::Constant(_L, _eta)),
+		negativeSampleSize(_negativeSampleSize), temporalSample(_timeNegativeSample)
 	{
 		globalData.rg = std::mt19937_64{ seed };
 
 		vEta[0] = 1;
-		avgNegCoef = Eigen::VectorXf::Zero(L);
-		for (size_t l = 0; l < L; ++l) avgNegCoef[l] = integratedChebyshevT(l) / 2;
-		avgNegMatrix = Eigen::MatrixXf::Zero(L, L);
-		for (size_t l = 0; l < L; ++l) for (size_t m = 0; m < L; ++m) avgNegMatrix(l, m) = integratedChebyshevTT(l, m) / 2;
-
 		timePadding = .25f / L;
 	}
 
@@ -204,10 +196,10 @@ public:
 		vocabs(std::move(o.vocabs)), frequencies(std::move(o.frequencies)), 
 		unigramTable(std::move(o.unigramTable)), unigramDist(std::move(o.unigramDist)),
 		in(std::move(o.in)), out(std::move(o.out)), zBias(o.zBias), zSlope(o.zSlope),
-		avgNegCoef(std::move(o.avgNegCoef)), avgNegMatrix(std::move(o.avgNegMatrix)),
 		vEta(std::move(o.vEta)), zeta(o.zeta), lambda(o.lambda),
 		timePrior(std::move(o.timePrior)), timePadding(o.timePadding),
-		timePriorScale(o.timePriorScale), wordScale(std::move(o.wordScale))
+		timePriorScale(o.timePriorScale), wordScale(std::move(o.wordScale)),
+		negativeSampleSize(o.negativeSampleSize), temporalSample(o.temporalSample)
 	{
 	}
 
@@ -224,8 +216,6 @@ public:
 		out = std::move(o.out);
 		zBias = o.zBias;
 		zSlope = o.zSlope;
-		avgNegCoef = std::move(o.avgNegCoef);
-		avgNegMatrix = std::move(o.avgNegMatrix);
 		vEta = std::move(o.vEta);
 		zeta = o.zeta;
 		lambda = o.lambda;
@@ -233,6 +223,8 @@ public:
 		timePadding = o.timePadding;
 		timePriorScale = o.timePriorScale;
 		wordScale = std::move(o.wordScale);
+		negativeSampleSize = o.negativeSampleSize;
+		temporalSample = o.temporalSample;
 		return *this;
 	}
 
