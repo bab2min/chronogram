@@ -136,8 +136,8 @@ float ChronoGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWe
 	s /= randSampleWeight.size();
 	nd /= randSampleWeight.size();
 	ll -= log(s);
-	in.block(0, x*L, M, L) -= -(d - nd / s) * lr;
-	return ll;
+	in.block(0, x*L, M, L) -= -(d - nd / s) * lr * zeta;
+	return ll * zeta;
 }
 
 float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const VectorXf & lWeight,
@@ -171,8 +171,8 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const VectorXf 
 	s /= randSampleWeight.size();
 	nd /= randSampleWeight.size();
 	ll -= log(s);
-	grad -= -(d - nd/s) * lr;
-	return ll;
+	grad -= -(d - nd/s) * lr * zeta;
+	return ll * zeta;
 }
 
 
