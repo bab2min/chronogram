@@ -121,13 +121,13 @@ private:
 
 	float timePadding = 0;
 	float timePriorScale = 1;
-	Eigen::VectorXf timePrior; // (L, 1)
+	Eigen::VectorXf timePrior, timePriorTmp; // (L, 1)
 	Eigen::VectorXf vEta;
 
 	size_t totalWords = 0, totalTimePoints = 0;
 	size_t procWords = 0, lastProcWords = 0, procTimePoints = 0;
 	size_t totalLLCnt = 0, timeLLCnt = 0;
-	double totalLL = 0, timeLL = 0;
+	double totalLL = 0, ugLL = 0, timeLL = 0;
 
 	ThreadLocalData globalData;
 	WordDictionary<> vocabs;
@@ -171,10 +171,10 @@ private:
 	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
 		size_t windowLen, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld);
 	void trainTimePrior(const float* ts, size_t N, float lr, size_t report);
-	void normalizeWordDist();
+	void normalizeWordDist(bool updateVocab = true);
 
 	float getTimePrior(const Eigen::VectorXf& coef) const;
-	float getWordProbByTime(uint32_t w, const Eigen::VectorXf& timedVector) const;
+	float getWordProbByTime(uint32_t w, const Eigen::VectorXf& timedVector, float tPrior) const;
 	float getWordProbByTime(uint32_t w, float timePoint) const;
 public:
 	ChronoGramModel(size_t _M = 100, size_t _L = 6,
