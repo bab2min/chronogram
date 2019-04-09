@@ -9,6 +9,9 @@
 using namespace std;
 using namespace Eigen;
 
+#define DEBUG_PRINT(out, x) (out << #x << ": " << x << endl)
+
+
 void ChronoGramModel::buildModel()
 {
 	const size_t V = vocabs.size();
@@ -97,8 +100,21 @@ float ChronoGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool nega
 	VectorXf inSum = _Fixed ? in.col(x * L) : makeTimedVector(x, lWeight);
 	float f = inSum.dot(outcol);
 	float pr = logsigmoid(f * (negative ? -1 : 1)) * (1 - zeta);
+	if (!isfinite(pr))
+	{
+		lock_guard<mutex> lock(mtx);
+		DEBUG_PRINT(cout, pr);
+		DEBUG_PRINT(cout, f);
+		throw exception();
+	}
 
 	float d = ((negative ? 0 : 1) - sigmoid(f)) * (1 - zeta);
+	if (!isfinite(d))
+	{
+		lock_guard<mutex> lock(mtx);
+		DEBUG_PRINT(cout, f);
+		throw exception();
+	}
 	float g = lr * d;
 
 	xGrad += g * outcol;
@@ -163,6 +179,14 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const VectorXf 
 	float pa = max(getTimePrior(lWeight), 1e-5f);
 	float expTerm = min(exp(-atv.squaredNorm() / 2 * lambda * pa), 1.f);
 	float ll = log(1 - expTerm + 1e-5f);
+	if (!isfinite(ll))
+	{
+		lock_guard<mutex> lock(mtx);
+		DEBUG_PRINT(cout, ll);
+		DEBUG_PRINT(cout, expTerm);
+		DEBUG_PRINT(cout, pa);
+		throw exception();
+	}
 	auto d = atv * lWeight.transpose() * expTerm / (1 - expTerm + 1e-5f) * lambda * pa;
 	float s = 0;
 	MatrixXf nd = MatrixXf::Zero(M, L);
@@ -178,6 +202,15 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const VectorXf 
 	s = max(s, 1e-5f);
 	nd /= randSampleWeight.size();
 	ll -= log(s);
+	if (!isfinite(ll))
+	{
+		lock_guard<mutex> lock(mtx);
+		DEBUG_PRINT(cout, ll);
+		DEBUG_PRINT(cout, expTerm);
+		DEBUG_PRINT(cout, pa);
+		DEBUG_PRINT(cout, s);
+		throw exception();
+	}
 	grad -= -(d - nd/s) * lr * zeta;
 	return ll * zeta;
 }
@@ -428,7 +461,6 @@ void ChronoGramModel::trainTimePrior(const float * ts, size_t N, float lr, size_
 	unordered_map<float, VectorXf> coefMap;
 	vector<float> randSample(temporalSample);
 	vector<const VectorXf*> randSampleWeight(temporalSample);
-	timePriorTmp = timePrior;
 	for (size_t i = 0; i < N; ++i)
 	{
 		for (size_t r = 0; r < temporalSample; ++r)
@@ -676,6 +708,7 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 		if (numWorkers > 1)
 		{
 			vector<future<void>> futures;
+			if (!fixed && zeta > 0) timePriorTmp = timePrior;
 			futures.reserve(collections.size());
 			for (auto& d : collections)
 			{
@@ -706,6 +739,7 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 		}
 		else
 		{
+			if (!fixed && zeta > 0) timePriorTmp = timePrior;
 			for (auto& d : collections)
 			{
 				if (fixed)
@@ -875,6 +909,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 		if (numWorkers > 1)
 		{
 			vector<future<void>> futures;
+			if (!fixed && zeta > 0) timePriorTmp = timePrior;
 			futures.reserve(collections.size());
 			for (auto& d : collections)
 			{
@@ -905,6 +940,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 		}
 		else
 		{
+			if (!fixed && zeta > 0) timePriorTmp = timePrior;
 			for (auto& d : collections)
 			{
 				if (fixed)
