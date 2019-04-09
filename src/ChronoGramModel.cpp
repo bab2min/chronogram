@@ -137,6 +137,7 @@ float ChronoGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWe
 		s += 1 - expTerm;
 	}
 	s /= randSampleWeight.size();
+	s = max(s, 1e-5f);
 	nd /= randSampleWeight.size();
 	ll -= log(s);
 	in.block(0, x*L, M, L) -= -(d - nd / s) * lr * zeta;
@@ -174,6 +175,7 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const VectorXf 
 		s += 1 - expTerm;
 	}
 	s /= randSampleWeight.size();
+	s = max(s, 1e-5f);
 	nd /= randSampleWeight.size();
 	ll -= log(s);
 	grad -= -(d - nd/s) * lr * zeta;
@@ -474,7 +476,7 @@ void ChronoGramModel::normalizeWordDist(bool updateVocab)
 		p += 1 - exp(-pow(timePrior.dot(coefs[i]), 2) / 2);
 	}
 	p /= step + 1;
-	timePriorScale = p;
+	timePriorScale = max(p, 1e-5f);
 	if (updateVocab)
 	{
 		for (size_t v = 0; v < vocabs.size(); ++v)
