@@ -230,7 +230,7 @@ float ChronoGramModel::updateTimePrior(float lr, const VectorXf & lWeight, const
 	ds/da = int(Tv * a.Tv * exp(-|a.Tv|^2/2))
 	d log P / da = (Tv * a.Tv / (exp(|a.Tv|^2/2) - 1)) - int(Tv * a.Tv * exp(-|a.Tv|^2/2)) / s
 	*/
-	float p = timePriorTmp.dot(lWeight);
+	float p = timePrior.dot(lWeight);
 	float expTerm = min(exp(-p * p / 2), 1.f);
 	float ll = log(1 - expTerm + 1e-5f);
 	auto d = lWeight * p * expTerm / (1 - expTerm + 1e-5f);
@@ -238,16 +238,25 @@ float ChronoGramModel::updateTimePrior(float lr, const VectorXf & lWeight, const
 	VectorXf nd = VectorXf::Zero(L);
 	for (auto& r : randSampleWeight)
 	{
-		float dot = timePriorTmp.dot(*r);
+		float dot = timePrior.dot(*r);
 		float expTerm = min(exp(-dot * dot / 2), 1.f);
 		nd += *r * dot * expTerm;
 		s += 1 - expTerm;
 	}
 	s /= randSampleWeight.size();
+	s = max(s, 1e-5f);
 	nd /= randSampleWeight.size();
 	ll -= log(s);
-	timePriorTmp -= -(d - nd/s) * lr;
-	assert(isfinite(ll));
+	timePrior -= -(d - nd/s) * lr;
+	if (!isfinite(ll))
+	{
+		lock_guard<mutex> lock(mtx);
+		DEBUG_PRINT(cout, ll);
+		DEBUG_PRINT(cout, s);
+		DEBUG_PRINT(cout, expTerm);
+		DEBUG_PRINT(cout, p);
+		throw exception();
+	}
 	return ll;
 }
 
@@ -708,7 +717,6 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 		if (numWorkers > 1)
 		{
 			vector<future<void>> futures;
-			if (!fixed && zeta > 0) timePriorTmp = timePrior;
 			futures.reserve(collections.size());
 			for (auto& d : collections)
 			{
@@ -733,13 +741,11 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 			for (auto& f : futures) f.get();
 			if (!fixed && zeta > 0)
 			{
-				timePrior = timePriorTmp;
 				normalizeWordDist(false);
 			}
 		}
 		else
 		{
-			if (!fixed && zeta > 0) timePriorTmp = timePrior;
 			for (auto& d : collections)
 			{
 				if (fixed)
@@ -756,7 +762,6 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 			if (!fixed && zeta > 0)
 			{
 				trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
-				timePrior = timePriorTmp;
 				normalizeWordDist(false);
 			}
 		}
@@ -909,7 +914,6 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 		if (numWorkers > 1)
 		{
 			vector<future<void>> futures;
-			if (!fixed && zeta > 0) timePriorTmp = timePrior;
 			futures.reserve(collections.size());
 			for (auto& d : collections)
 			{
@@ -934,13 +938,11 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 			for (auto& f : futures) f.get();
 			if (!fixed && zeta > 0)
 			{
-				timePrior = timePriorTmp;
 				normalizeWordDist(false);
 			}
 		}
 		else
 		{
-			if (!fixed && zeta > 0) timePriorTmp = timePrior;
 			for (auto& d : collections)
 			{
 				if (fixed)
@@ -957,7 +959,6 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 			if (!fixed && zeta > 0)
 			{
 				trainTimePrior(timePoints.data(), timePoints.size(), start_lr, report);
-				timePrior = timePriorTmp;
 				normalizeWordDist(false);
 			}
 		}

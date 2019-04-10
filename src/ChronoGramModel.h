@@ -121,7 +121,7 @@ private:
 
 	float timePadding = 0;
 	float timePriorScale = 1;
-	Eigen::VectorXf timePrior, timePriorTmp; // (L, 1)
+	Eigen::VectorXf timePrior; // (L, 1)
 	Eigen::VectorXf vEta;
 
 	size_t totalWords = 0, totalTimePoints = 0;
