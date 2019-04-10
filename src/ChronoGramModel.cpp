@@ -100,21 +100,7 @@ float ChronoGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool nega
 	VectorXf inSum = _Fixed ? in.col(x * L) : makeTimedVector(x, lWeight);
 	float f = inSum.dot(outcol);
 	float pr = logsigmoid(f * (negative ? -1 : 1)) * (1 - zeta);
-	if (!isfinite(pr))
-	{
-		lock_guard<mutex> lock(mtx);
-		DEBUG_PRINT(cout, pr);
-		DEBUG_PRINT(cout, f);
-		throw exception();
-	}
-
 	float d = ((negative ? 0 : 1) - sigmoid(f)) * (1 - zeta);
-	if (!isfinite(d))
-	{
-		lock_guard<mutex> lock(mtx);
-		DEBUG_PRINT(cout, f);
-		throw exception();
-	}
 	float g = lr * d;
 
 	xGrad += g * outcol;
@@ -163,30 +149,10 @@ float ChronoGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWe
 float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const VectorXf & lWeight,
 	const vector<const VectorXf*>& randSampleWeight, Block<MatrixXf> grad)
 {
-	/*
-	s = int(1 - exp(-|a Tv|^2/2))
-    P = (1 - exp(-|a.Tv|^2/2)) / s
-
-    log P = log(1 - exp(-|a.Tv|^2/2)) - log(s)
-    d log(1 - exp(-|a.Tv|^2/2)) / da = 1 / (1 - exp(-|a.Tv|^2/2)) (-exp(-|a.Tv|^2/2)) (-a.Tv) . Tv^T
-        = (a.Tv . Tv^T / (exp(|a.Tv|^2/2) - 1))
-
-    d log(s) / da = d log(s) / ds * ds / da = 1 / s * ds / da
-    ds/da = int(a.Tv . Tv^T * exp(-|a.Tv|^2/2))
-    d log P / da = (a.Tv . Tv^T / (exp(|a.Tv|^2/2) - 1)) - int(a.Tv . Tv^T * exp(-|a.Tv|^2/2)) / s
-	*/
 	auto atv = makeTimedVector(x, lWeight);
 	float pa = max(getTimePrior(lWeight), 1e-5f);
 	float expTerm = min(exp(-atv.squaredNorm() / 2 * lambda * pa), 1.f);
 	float ll = log(1 - expTerm + 1e-5f);
-	if (!isfinite(ll))
-	{
-		lock_guard<mutex> lock(mtx);
-		DEBUG_PRINT(cout, ll);
-		DEBUG_PRINT(cout, expTerm);
-		DEBUG_PRINT(cout, pa);
-		throw exception();
-	}
 	auto d = atv * lWeight.transpose() * expTerm / (1 - expTerm + 1e-5f) * lambda * pa;
 	float s = 0;
 	MatrixXf nd = MatrixXf::Zero(M, L);
@@ -202,15 +168,6 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const VectorXf 
 	s = max(s, 1e-5f);
 	nd /= randSampleWeight.size();
 	ll -= log(s);
-	if (!isfinite(ll))
-	{
-		lock_guard<mutex> lock(mtx);
-		DEBUG_PRINT(cout, ll);
-		DEBUG_PRINT(cout, expTerm);
-		DEBUG_PRINT(cout, pa);
-		DEBUG_PRINT(cout, s);
-		throw exception();
-	}
 	grad -= -(d - nd/s) * lr * zeta;
 	return ll * zeta;
 }
@@ -218,18 +175,6 @@ float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const VectorXf 
 
 float ChronoGramModel::updateTimePrior(float lr, const VectorXf & lWeight, const vector<const VectorXf*>& randSampleWeight)
 {
-	/*
-	s = int(1 - exp(-|a Tv|^2/2))
-	P = (1 - exp(-|a.Tv|^2/2)) / s
-
-	log P = log(1 - exp(-|a.Tv|^2/2)) - log(s)
-	d log(1 - exp(-|a.Tv|^2/2)) / da = 1 / (1 - exp(-|a.Tv|^2/2)) (-exp(-|a.Tv|^2/2)) (-a.Tv) * Tv
-		= (Tv * a.Tv / (exp(|a.Tv|^2/2) - 1))
-
-	d log(s) / da = d log(s) / ds * ds / da = 1 / s * ds / da
-	ds/da = int(Tv * a.Tv * exp(-|a.Tv|^2/2))
-	d log P / da = (Tv * a.Tv / (exp(|a.Tv|^2/2) - 1)) - int(Tv * a.Tv * exp(-|a.Tv|^2/2)) / s
-	*/
 	float p = timePrior.dot(lWeight);
 	float expTerm = min(exp(-p * p / 2), 1.f);
 	float ll = log(1 - expTerm + 1e-5f);
@@ -248,15 +193,6 @@ float ChronoGramModel::updateTimePrior(float lr, const VectorXf & lWeight, const
 	nd /= randSampleWeight.size();
 	ll -= log(s);
 	timePrior -= -(d - nd/s) * lr;
-	if (!isfinite(ll))
-	{
-		lock_guard<mutex> lock(mtx);
-		DEBUG_PRINT(cout, ll);
-		DEBUG_PRINT(cout, s);
-		DEBUG_PRINT(cout, expTerm);
-		DEBUG_PRINT(cout, p);
-		throw exception();
-	}
 	return ll;
 }
 
