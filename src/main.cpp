@@ -529,7 +529,7 @@ int main(int argc, char* argv[])
 					}
 					else
 					{
-						offset = (size_t)ceil((abs(err) - s / 2) / s);
+						offset = (abs(err) - s / 2 - 1) / (s + 1) + 1;
 					}
 					score[i] += offsetScore[min(offset, (size_t)9)];
 				}
