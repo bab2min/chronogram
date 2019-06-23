@@ -179,7 +179,7 @@ private:
 public:
 	ChronoGramModel(size_t _M = 100, size_t _L = 6,
 		float _subsampling = 1e-4f, size_t _negativeSampleSize = 5, size_t _timeNegativeSample = 5,
-		float _eta = 1.f, float _zeta = .5f, float _lambda = .1f,
+		float _eta = 1.f, float _zeta = .1f, float _lambda = .1f,
 		size_t seed = std::random_device()())
 		: M(_M), L(_L), subsampling(_subsampling), eta(_eta), zeta(_zeta), lambda(_lambda),
 		vEta(Eigen::VectorXf::Constant(_L, _eta)),

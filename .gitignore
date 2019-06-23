@@ -291,3 +291,6 @@ __pycache__/
 /SETrain.txt
 /SEGold.txt.result
 /SEGold.txt
+/include
+/chronogram.egg-info
+/dist

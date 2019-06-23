@@ -7,6 +7,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ChronoGram", "ChronoGram.vc
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ChronoGram-Lin", "ChronoGram-Lin.vcxproj", "{9799302B-140D-4024-A150-B29102D262AC}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ChronoGramPy", "ChronoGramPy.vcxproj", "{767ABBDE-AA63-45BB-9F52-87512BBE5310}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -65,6 +67,24 @@ Global
 		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|x64.Build.0 = Release|x64
 		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|x86.ActiveCfg = Release|x86
 		{9799302B-140D-4024-A150-B29102D262AC}.ReleaseSIMD|x86.Build.0 = Release|x86
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Debug|ARM.ActiveCfg = Debug|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Debug|ARM64.ActiveCfg = Debug|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Debug|x64.ActiveCfg = Debug|x64
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Debug|x64.Build.0 = Debug|x64
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Debug|x86.ActiveCfg = Debug|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Debug|x86.Build.0 = Debug|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Release|ARM.ActiveCfg = Release|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Release|ARM64.ActiveCfg = Release|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Release|x64.ActiveCfg = Release|x64
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Release|x64.Build.0 = Release|x64
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Release|x86.ActiveCfg = Release|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.Release|x86.Build.0 = Release|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.ReleaseSIMD|ARM.ActiveCfg = ReleaseSIMD|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.ReleaseSIMD|ARM64.ActiveCfg = ReleaseSIMD|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.ReleaseSIMD|x64.ActiveCfg = ReleaseSIMD|x64
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.ReleaseSIMD|x64.Build.0 = ReleaseSIMD|x64
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.ReleaseSIMD|x86.ActiveCfg = ReleaseSIMD|Win32
+		{767ABBDE-AA63-45BB-9F52-87512BBE5310}.ReleaseSIMD|x86.Build.0 = ReleaseSIMD|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
