@@ -34,6 +34,8 @@
     <ClInclude Include="src\dictionary.h" />
     <ClInclude Include="src\IOUtils.h" />
     <ClInclude Include="src\mathUtils.h" />
+    <ClInclude Include="src\pyDocs.h" />
+    <ClInclude Include="src\PyUtils.h" />
     <ClInclude Include="src\ThreadPool.h" />
     <ClInclude Include="src\Timer.h" />
   </ItemGroup>
@@ -41,7 +43,7 @@
     <ClCompile Include="src\DataReader.cpp" />
     <ClCompile Include="src\IOUtils.cpp" />
     <ClCompile Include="src\ChronoGramModel.cpp" />
-    <ClCompile Include="src\pyModulecpp.cpp" />
+    <ClCompile Include="src\pyModule.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
