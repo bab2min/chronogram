@@ -172,35 +172,53 @@ PyObject * CGM_save(CGMObject * self, PyObject * args, PyObject * kwargs)
 	}
 }
 
-function<ChronoGramModel::ReadResult(size_t)> makeCGMReader(PyObject* reader)
+function<ChronoGramModel::ResultReader()> makeCGMReader(PyObject* reader)
 {
-	return [=](size_t id)
+	return [=]()
 	{
-		ChronoGramModel::ReadResult ret;
-		PyObject* r = PyObject_Call(reader, Py_BuildValue("(n)", id), nullptr);
-		py::AutoReleaser ar{ r };
-		if (!r) throw bad_exception{};
-		if (PyObject_IsTrue(r))
+		PyObject* r = PyObject_GetIter(reader);
+		if(!r) throw runtime_error{ "'reader' must be iterable" };
+		
+		struct ReaderObj
 		{
-			if (PyTuple_Size(r) != 2)
+			PyObject* r;
+
+			~ReaderObj()
 			{
-				auto repr = PyObject_Repr(r);
-				string srepr = PyUnicode_AsUTF8(repr);
-				Py_XDECREF(repr);
-				throw runtime_error{ "wrong return value of reader : " + srepr };
+				Py_XDECREF(r);
 			}
-			auto* wordIter = PyObject_GetIter(PyTuple_GetItem(r, 0));
-			if (!wordIter) throw runtime_error{ "first item of tuple must be list of str" };
-			ret.words = py::makeIterToVector(wordIter);
-			Py_XDECREF(wordIter);
-			ret.timePoint = PyFloat_AsDouble(PyTuple_GetItem(r, 1));
-			if (ret.timePoint == -1 && PyErr_Occurred()) throw bad_exception{};
-		}
-		else
-		{
-			ret.stop = true;
-		}
-		return ret;
+
+			ChronoGramModel::ReadResult operator()()
+			{
+				ChronoGramModel::ReadResult ret;
+				auto* item = PyIter_Next(r);
+				if (item)
+				{
+					if (PyTuple_Size(item) != 2)
+					{
+						auto repr = PyObject_Repr(item);
+						string srepr = PyUnicode_AsUTF8(repr);
+						Py_XDECREF(repr);
+						throw runtime_error{ "wrong return value of 'reader' : " + srepr };
+					}
+					auto* wordIter = PyObject_GetIter(PyTuple_GetItem(item, 0));
+					if (!wordIter) throw runtime_error{ "first item of tuple must be list of str" };
+					ret.words = py::makeIterToVector(wordIter);
+					Py_XDECREF(wordIter);
+					ret.timePoint = PyFloat_AsDouble(PyTuple_GetItem(item, 1));
+					if (ret.timePoint == -1 && PyErr_Occurred()) throw bad_exception{};
+				}
+				else
+				{
+					if (PyErr_Occurred()) throw bad_exception{};
+					ret.stop = true;
+				}
+				return ret;
+			}
+		};
+
+		auto sr = make_shared<ReaderObj>(r);
+		return [sr]() { return sr->operator()(); };
 	};
 }
 
@@ -213,7 +231,6 @@ PyObject * CGM_buildVocab(CGMObject * self, PyObject * args, PyObject * kwargs)
 	try
 	{
 		if (!self->inst) throw runtime_error{ "inst is null" };
-		if (!PyCallable_Check(reader)) throw runtime_error{ "reader must be callable" };
 		self->inst->buildVocab(makeCGMReader(reader), minCnt, workers);
 		Py_INCREF(Py_None);
 		return Py_None;
@@ -240,7 +257,6 @@ PyObject * CGM_train(CGMObject * self, PyObject * args, PyObject * kwargs)
 	try
 	{
 		if (!self->inst) throw runtime_error{ "inst is null" };
-		if (!PyCallable_Check(reader)) throw runtime_error{ "reader must be callable" };
 		self->inst->train(makeCGMReader(reader), workers, windowLen, initEpochs, startLR, batchSents, epochs, report);
 		Py_INCREF(Py_None);
 		return Py_None;
@@ -258,12 +274,92 @@ PyObject * CGM_train(CGMObject * self, PyObject * args, PyObject * kwargs)
 
 PyObject * CGM_mostSimilar(CGMObject * self, PyObject * args, PyObject * kwargs)
 {
-	return nullptr;
+	PyObject *positives, *negatives = nullptr;
+	float time = -INFINITY, m = 0;
+	size_t topN = 10;
+	static const char* kwlist[] = { "positives", "negatives", "time", "m", "top_n", nullptr };
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Offn", (char**)kwlist,
+		&positives, &negatives, &time, &m, &topN)) return nullptr;
+	
+	const auto& parseWord = [](PyObject* obj)
+	{
+		if (PyTuple_Size(obj) != 2) throw runtime_error{ "'positives' and 'negatives' should be (word :str, time :float) or its list" };
+		const char* word = PyUnicode_AsUTF8(PyTuple_GetItem(obj, 0));
+		if (!word) throw bad_exception{};
+		float time = PyFloat_AsDouble(PyTuple_GetItem(obj, 1));
+		if (time == -1 && PyErr_Occurred()) throw bad_exception{};
+		return make_pair(string{ word }, time);
+	};
+
+	const auto& parseWords = [&](PyObject* obj)
+	{
+		vector<pair<string, float>> ret;
+		if (PyTuple_Check(obj))
+		{
+			ret.emplace_back(parseWord(obj));
+		}
+		else
+		{
+			PyObject *iter = PyObject_GetIter(obj), *item;
+			py::AutoReleaser arIter{ iter };
+			if(!iter) throw runtime_error{ "'positives' and 'negatives' should be (word :str, time :float) or its list" };
+			while (item = PyIter_Next(iter))
+			{
+				ret.emplace_back(parseWord(item));
+			}
+		}
+		return ret;
+	};
+	
+	try
+	{
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		vector<pair<string, float>> pos, neg;
+		if(time == -INFINITY) time = self->inst->getMinPoint();
+		pos = parseWords(positives);
+		if (negatives) neg = parseWords(negatives);
+		return py::buildPyValue(self->inst->mostSimilar(pos, neg, time, m, topN));
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
 }
 
 PyObject * CGM_similarity(CGMObject * self, PyObject * args, PyObject * kwargs)
 {
-	return nullptr;
+	const char *word1, *word2;
+	float time1, time2;
+	try
+	{
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		static const char* kwlist[] = { "word1", "time1", "word2", "time2", nullptr };
+		if (PyArg_ParseTupleAndKeywords(args, kwargs, "sfsf", (char**)kwlist,
+			&word1, &time1, &word2, &time2))
+		{
+			return py::buildPyValue(self->inst->similarity(word1, time1, word2, time2));
+		}
+
+		static const char* kwlist2[] = { "word1", "word2", nullptr };
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "ss", (char**)kwlist,
+			&word1, &word2)) return nullptr;
+		PyErr_Clear();
+		return py::buildPyValue(self->inst->similarity(word1, word2));
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
 }
 
 PyObject * CGM_getEmbedding(CGMObject * self, PyObject * args, PyObject * kwargs)

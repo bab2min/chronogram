@@ -256,7 +256,8 @@ int main(int argc, char* argv[])
 				{
 					while (1)
 					{
-						auto p = reader(args.maxItem++).yearCnt;
+						auto p = reader().yearCnt;
+						args.maxItem++;
 						if (p.empty()) break;
 						args.minT = min(min_element(p.begin(), p.end())->first, args.minT);
 						args.maxT = max(max_element(p.begin(), p.end())->first, args.maxT);
@@ -265,7 +266,7 @@ int main(int argc, char* argv[])
 				}
 				else
 				{
-					while (!reader(args.maxItem++).yearCnt.empty());
+					while (args.maxItem++,!reader().yearCnt.empty());
 				}
 				cout << "Total items in training data: " << args.maxItem << endl;
 			}
@@ -273,8 +274,7 @@ int main(int argc, char* argv[])
 
 		if (args.vocab.empty())
 		{
-			MultipleReader reader{ args.input };
-			tgm.buildVocab(bind(&MultipleReader::operator(), &reader, placeholders::_1), args.minCnt, args.worker);
+			tgm.buildVocab(MultipleReader::factory(args.input), args.minCnt, args.worker);
 			cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size()
 				<< "\tTotal Words: " << tgm.getTotalWords() << endl;
 		}
@@ -295,7 +295,7 @@ int main(int argc, char* argv[])
 				cout << "Recounting vocabs in time range [" << args.minT << ", " << args.maxT << "]" << endl;
 				GNgramBinaryReader reader{ args.ngram };
 				cout << "Recounted Vocab Size: " <<
-					tgm.recountVocab(bind(&GNgramBinaryReader::operator(), &reader, placeholders::_1), args.minT, args.maxT, 0) << endl;
+					tgm.recountVocab(GNgramBinaryReader::factory(args.ngram), args.minT, args.maxT, 0) << endl;
 			}
 		}
 
@@ -314,15 +314,13 @@ int main(int argc, char* argv[])
 
 		if (args.ngram.empty())
 		{
-			MultipleReader reader{ args.input };
-			tgm.train(bind(&MultipleReader::operator(), &reader, placeholders::_1),
+			tgm.train(MultipleReader::factory(args.input),
 				args.worker, args.window, args.fixedInit,
 				.025f, args.batch, args.epoch, args.report);
 		}
 		else
 		{
-			GNgramBinaryReader reader{ args.ngram };
-			tgm.trainFromGNgram(bind(&GNgramBinaryReader::operator(), &reader, placeholders::_1),
+			tgm.trainFromGNgram(GNgramBinaryReader::factory(args.ngram),
 				args.maxItem, args.worker, args.fixedInit,
 				.025f, args.batch, args.epoch, args.report);
 		}
@@ -489,7 +487,7 @@ int main(int argc, char* argv[])
 		size_t correct[3] = { 0, };
 		size_t n = 0;
 		MultipleReader reader{ {args.eval} };
-		tgm.evaluate(bind(&MultipleReader::operator(), &reader, placeholders::_1), 
+		tgm.evaluate(bind(&MultipleReader::operator(), &reader), 
 			[&](ChronoGramModel::EvalResult r)
 		{
 			ofs << r.trueTime << "\t" << r.estimatedTime << "\t" << r.ll

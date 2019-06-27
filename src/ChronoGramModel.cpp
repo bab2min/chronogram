@@ -486,7 +486,7 @@ float ChronoGramModel::getWordProbByTime(uint32_t w, float timePoint) const
 }
 
 
-void ChronoGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt, size_t numWorkers)
+void ChronoGramModel::buildVocab(const std::function<ResultReader()>& reader, size_t minCnt, size_t numWorkers)
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
 
@@ -498,9 +498,10 @@ void ChronoGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader
 		{
 			ThreadPool workers(numWorkers - 1, (numWorkers - 1) * 16);
 			vector<string> words;
-			for (size_t id = 0; ; ++id)
+			auto riter = reader();
+			while (1)
 			{
-				auto res = reader(id);
+				auto res = riter();
 				if (res.stop) break;
 				if (res.words.empty()) continue;
 				minT = min(res.timePoint, minT);
@@ -524,9 +525,10 @@ void ChronoGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader
 	}
 	else
 	{
-		for (size_t id = 0; ; ++id)
+		auto riter = reader();
+		while(1)
 		{
-			auto res = reader(id);
+			auto res = riter();
 			if (res.stop) break;
 			if (res.words.empty()) continue;
 			minT = min(res.timePoint, minT);
@@ -545,17 +547,22 @@ void ChronoGramModel::buildVocab(const std::function<ReadResult(size_t)>& reader
 	buildModel();
 }
 
-size_t ChronoGramModel::recountVocab(const std::function<ReadResult(size_t)>& reader, float minT, float maxT, size_t numWorkers)
+size_t ChronoGramModel::recountVocab(const std::function<ResultReader()>& reader, float minT, float maxT, size_t numWorkers)
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
 	vector<vector<uint64_t>> counters(numWorkers);
-	for (auto& c : counters) c.resize(vocabs.size());
+	for (auto& c : counters)
+	{
+		c.resize(vocabs.size());
+	}
+
 	{
 		ThreadPool workers(numWorkers, numWorkers * 16);
 		vector<string> words;
-		for (size_t id = 0; ; ++id)
+		auto riter = reader();
+		while (1)
 		{
-			auto res = reader(id);
+			auto res = riter();
 			if (res.stop) break;
 			if (res.words.empty()) continue;
 			if (res.timePoint < minT) continue;
@@ -582,13 +589,14 @@ size_t ChronoGramModel::recountVocab(const std::function<ReadResult(size_t)>& re
 }
 
 
-size_t ChronoGramModel::recountVocab(const std::function<GNgramReadResult(size_t)>& reader, float minT, float maxT, size_t numWorkers)
+size_t ChronoGramModel::recountVocab(const std::function<GNgramResultReader()>& reader, float minT, float maxT, size_t numWorkers)
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
 	fill(frequencies.begin(), frequencies.end(), 0);
-	for (size_t id = 0; ; ++id)
+	auto riter = reader();
+	while (1)
 	{
-		auto res = reader(id);
+		auto res = riter();
 		if (res.yearCnt.empty()) break;
 		for (auto& yc : res.yearCnt)
 		{
@@ -613,7 +621,7 @@ bool ChronoGramModel::addFixedWord(const std::string & word)
 	return true;
 }
 
-void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
+void ChronoGramModel::train(const function<ResultReader()>& reader,
 	size_t numWorkers, size_t windowLen, float fixedInit, float start_lr, size_t batch,
 	size_t epoch, size_t report)
 {
@@ -711,10 +719,11 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 		float frac = fmod(fixedInit, 1.f);
 		for (size_t e = 0; e <= flr; ++e)
 		{
-			for (size_t id = 0; ; ++id)
+			auto riter = reader();
+			while(1)
 			{
 				if (procWords >= (e == flr ? frac : 1) * totW) break;
-				auto rresult = reader(id);
+				auto rresult = riter();
 				if (rresult.words.empty()) break;
 
 				vector<uint32_t> doc;
@@ -759,9 +768,10 @@ void ChronoGramModel::train(const function<ReadResult(size_t)>& reader,
 
 	for (size_t e = 0; e < epoch; ++e)
 	{
-		for (size_t id = 0; ; ++id)
+		auto riter = reader();
+		while(1)
 		{
-			auto rresult = reader(id);
+			auto rresult = riter();
 			if (rresult.words.empty()) break;
 
 			vector<uint32_t> doc;
@@ -810,7 +820,7 @@ void ChronoGramModel::buildVocabFromDict(const function<pair<string, uint64_t>()
 	buildModel();
 }
 
-void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& reader, uint64_t maxItems,
+void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& reader, uint64_t maxItems,
 	size_t numWorkers, float fixedInit, float start_lr, size_t batchSents, size_t epochs, size_t report)
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
@@ -915,9 +925,10 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 		float frac = fmod(fixedInit, 1.f);
 		for (size_t e = 0; e <= flr; ++e)
 		{
+			auto riter = reader();
 			for (size_t id = 0; id < maxItems * (e == flr ? frac : 1); ++id)
 			{
-				auto rresult = reader(id);
+				auto rresult = riter();
 				if (rresult.yearCnt.empty()) break;
 
 				for (auto& w : rresult.ngram)
@@ -968,9 +979,10 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramReadResult(size_t)>& 
 
 	for (size_t e = 0; e < epochs; ++e)
 	{
+		auto riter = reader();
 		for (size_t id = 0; id < maxItems; ++id)
 		{
-			auto rresult = reader(id);
+			auto rresult = riter();
 			if (rresult.yearCnt.empty()) break;
 
 			for (auto& w : rresult.ngram)
@@ -1329,7 +1341,7 @@ pair<float, float> ChronoGramModel::predictSentTime(const vector<string>& words,
 	return make_pair(unnormalizedTimePoint(maxP / (float)SCALE * (1 - timePadding * 2) + timePadding), maxLL);
 }
 
-vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<ReadResult(size_t)>& reader,
+vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<ReadResult()>& reader,
 	const function<void(EvalResult)>& writer, size_t numWorkers, 
 	size_t windowLen, size_t nsQ, const function<float(float)>& timePrior, float timePriorWeight,
 	size_t initStep, float threshold) const
@@ -1356,7 +1368,7 @@ vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<Rea
 
 	for (;; ++id)
 	{
-		auto r = reader(id);
+		auto r = reader();
 		if (r.stop) break;
 		unique_lock<mutex> l{ readMtx };
 		readCnd.wait(l, [&]() { return workers.getNumEnqued() < workers.getNumWorkers() * 4; });

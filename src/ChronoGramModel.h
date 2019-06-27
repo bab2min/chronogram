@@ -43,12 +43,14 @@ public:
 		float timePoint = 0;
 		bool stop = false;
 	};
+	using ResultReader = std::function<ReadResult()>;
 
 	struct GNgramReadResult
 	{
 		std::array<uint32_t, 5> ngram;
 		std::vector<std::pair<float, uint32_t>> yearCnt;
 	};
+	using GNgramResultReader = std::function<GNgramReadResult()>;
 
 	class LLEvaluater
 	{
@@ -228,16 +230,16 @@ public:
 		return *this;
 	}
 
-	void buildVocab(const std::function<ReadResult(size_t)>& reader, size_t minCnt = 10, size_t numWorkers = 0);
-	size_t recountVocab(const std::function<ReadResult(size_t)>& reader, float minT, float maxT, size_t numWorkers);
-	size_t recountVocab(const std::function<GNgramReadResult(size_t)>& reader, float minT, float maxT, size_t numWorkers);
+	void buildVocab(const std::function<ResultReader()>& reader, size_t minCnt = 10, size_t numWorkers = 0);
+	size_t recountVocab(const std::function<ResultReader()>& reader, float minT, float maxT, size_t numWorkers);
+	size_t recountVocab(const std::function<GNgramResultReader()>& reader, float minT, float maxT, size_t numWorkers);
 	bool addFixedWord(const std::string& word);
-	void train(const std::function<ReadResult(size_t)>& reader, size_t numWorkers = 0,
+	void train(const std::function<ResultReader()>& reader, size_t numWorkers = 0,
 		size_t windowLen = 4, float fixedInit = 0.f,
 		float start_lr = .025f, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
 	void buildVocabFromDict(const std::function<std::pair<std::string, uint64_t>()>& reader, float minT, float maxT);
-	void trainFromGNgram(const std::function<GNgramReadResult(size_t)>& reader, uint64_t maxItems, size_t numWorkers = 0,
+	void trainFromGNgram(const std::function<GNgramResultReader()>& reader, uint64_t maxItems, size_t numWorkers = 0,
 		float fixedInit = 0.f, float start_lr = .025f, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
@@ -264,7 +266,7 @@ public:
 		size_t windowLen, size_t nsQ = 16, const std::function<float(float)>& timePrior = {}, float timePriorWeight = 0,
 		size_t initStep = 8, float threshold = .0025f, std::vector<float>* llOutput = nullptr) const;
 
-	std::vector<EvalResult> evaluate(const std::function<ReadResult(size_t)>& reader, 
+	std::vector<EvalResult> evaluate(const std::function<ReadResult()>& reader, 
 		const std::function<void(EvalResult)>& writer,
 		size_t numWorkers, size_t windowLen, size_t nsQ, const std::function<float(float)>& timePrior, float timePriorWeight,
 		size_t initStep, float threshold) const;

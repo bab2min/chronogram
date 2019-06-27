@@ -1,18 +1,14 @@
 #include <iterator>
+#include <functional>
 #include "DataReader.h"
 #include "IOUtils.h"
 
 using namespace std;
 
-ChronoGramModel::ReadResult MultipleReader::operator()(size_t id)
+ChronoGramModel::ReadResult MultipleReader::operator()()
 {
 	ChronoGramModel::ReadResult rr;
 	string line;
-	if (id == 0)
-	{
-		currentId = 0;
-		ifs = ifstream{ files[currentId] };
-	}
 
 	while (currentId < files.size())
 	{
@@ -33,6 +29,16 @@ ChronoGramModel::ReadResult MultipleReader::operator()(size_t id)
 	return rr;
 }
 
+function<ChronoGramModel::ResultReader()> MultipleReader::factory(const vector<string>& _files)
+{
+	return [=]()
+	{
+		auto r = make_shared<MultipleReader>(_files);
+		return [=](){ return r->operator()(); };
+	};
+}
+
+
 size_t decodeVLE(const uint8_t* &p)
 {
 	size_t ret = 0;
@@ -52,14 +58,8 @@ uint16_t decode16(const uint8_t* &p)
 	return ret;
 }
 
-ChronoGramModel::GNgramReadResult GNgramBinaryReader::operator()(size_t id)
+ChronoGramModel::GNgramReadResult GNgramBinaryReader::operator()()
 {
-	if (id == 0)
-	{
-		ifs.clear();
-		ifs.seekg(0);
-	}
-
 	ChronoGramModel::GNgramReadResult ret;
 	uint8_t buf[16384];
 	try
@@ -84,4 +84,13 @@ ChronoGramModel::GNgramReadResult GNgramBinaryReader::operator()(size_t id)
 	{
 		return ret;
 	}
+}
+
+function<ChronoGramModel::GNgramResultReader()> GNgramBinaryReader::factory(const string& _file)
+{
+	return [=]()
+	{
+		auto r = make_shared<GNgramBinaryReader>(_file);
+		return [=]() { return r->operator()(); };
+	};
 }

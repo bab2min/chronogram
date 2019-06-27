@@ -17,3 +17,26 @@ DOC_SIGNATURE_EN(CGM_load__doc__,
 	"load(filename)",
 	u8R""()"");
 
+DOC_SIGNATURE_EN(CGM_save__doc__,
+	"save(filename, compressed=True)",
+	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_build_vocab__doc__,
+	"build_vocab(reader, min_cnt=10, workers=0)",
+	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_train__doc__,
+	"train(reader, workers=0, window_len=4, init_epochs=0, start_lr=0.025, batch_size=1000, epochs=1, report=10000)",
+	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_most_similar__doc__,
+	"most_similar(positives, negatives=None, time=None, m=0, topN=10)",
+	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_similarity__doc__,
+	"similarity(word1, time1, word2, time2)",
+	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_get_embedding__doc__,
+	"get_embedding(word, time)",
+	u8R""()"");
