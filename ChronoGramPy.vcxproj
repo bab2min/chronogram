@@ -120,33 +120,37 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python37\include;$(IncludePath)</IncludePath>
+    <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python36\include;$(IncludePath)</IncludePath>
     <TargetExt>.pyd</TargetExt>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python37\include;$(IncludePath)</IncludePath>
     <TargetExt>.pyd</TargetExt>
+    <TargetName>_chronogram</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python37\include;$(IncludePath)</IncludePath>
+    <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python36\include;$(IncludePath)</IncludePath>
     <TargetExt>.pyd</TargetExt>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSIMD|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python37\include;$(IncludePath)</IncludePath>
+    <IncludePath>C:\Users\Administrator\AppData\Local\Programs\Python\Python36\include;E:\eigen\;$(IncludePath)</IncludePath>
     <TargetExt>.pyd</TargetExt>
+    <TargetName>_chronogram</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python37\include;$(IncludePath)</IncludePath>
+    <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python36\include;$(IncludePath)</IncludePath>
     <TargetExt>.pyd</TargetExt>
+    <LibraryPath>C:\Users\Administrator\AppData\Local\Programs\Python\Python36\libs;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSIMD|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python37\include;$(IncludePath)</IncludePath>
+    <IncludePath>C:\Users\Administrator\AppData\Local\Programs\Python\Python37\include;E:\eigen\;$(IncludePath)</IncludePath>
     <TargetExt>.pyd</TargetExt>
+    <TargetName>_chronogram</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -174,12 +178,13 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeaderFile>
       </PrecompiledHeaderFile>
-      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS /Qvec-report:1 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS -D_CRT_SECURE_NO_WARNINGS -DMODULE_NAME=PyInit__chronogram /Qvec-report:1 %(AdditionalOptions)</AdditionalOptions>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>C:\Users\Administrator\AppData\Local\Programs\Python\Python37\libs;</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -215,13 +220,14 @@
       <PrecompiledHeaderFile>
       </PrecompiledHeaderFile>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
-      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS /Qvec-report:1</AdditionalOptions>
+      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS -DMODULE_NAME=PyInit__chronogram /Qvec-report:1</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>C:\Users\Administrator\AppData\Local\Programs\Python\Python36\libs;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -258,7 +264,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeaderFile>
       </PrecompiledHeaderFile>
-      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS /Qvec-report:1 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS -D_CRT_SECURE_NO_WARNINGS -DMODULE_NAME=PyInit__chronogram /Qvec-report:1 %(AdditionalOptions)</AdditionalOptions>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
@@ -266,6 +272,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>C:\Users\Administrator\AppData\Local\Programs\Python\Python37\libs;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

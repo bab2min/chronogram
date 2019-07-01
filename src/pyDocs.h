@@ -40,3 +40,19 @@ DOC_SIGNATURE_EN(CGM_similarity__doc__,
 DOC_SIGNATURE_EN(CGM_get_embedding__doc__,
 	"get_embedding(word, time)",
 	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_most_similar_s__doc__,
+	"most_similar_s(positives, negatives=None, topN=10)",
+	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_similarity_s__doc__,
+	"similarity_s(word1, word2)",
+	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_get_embedding_s__doc__,
+	"get_embedding_s(word)",
+	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_evaluator__doc__,
+	"evaluator(words, window_len=4, ns_q=16, time_prior_fun=None, time_prior_weight=0)",
+	u8R""()"");

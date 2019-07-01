@@ -75,7 +75,7 @@ public:
 
 		std::unordered_map<uint32_t, MixedVectorCoef> coefs;
 		const ChronoGramModel& tgm;
-		const std::function<float(float)>& timePrior;
+		std::function<float(float)> timePrior;
 		LLEvaluater(const ChronoGramModel& _tgm, size_t _windowLen,
 			size_t _nsQ, std::vector<uint32_t>&& _wordIds, 
 			std::unordered_map<uint32_t, MixedVectorCoef>&& _coefs,

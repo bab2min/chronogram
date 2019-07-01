@@ -1,5 +1,11 @@
 #pragma once
+#ifdef _DEBUG
+#undef _DEBUG
 #include <Python.h>
+#define _DEBUG
+#else
+#include <Python.h>
+#endif
 #include <type_traits>
 #include <vector>
 #include <tuple>
@@ -100,6 +106,30 @@ namespace py
 		size_t id = 0;
 		PyTuple_SetItem(ret, id++, buildPyValue(get<0>(v)));
 		PyTuple_SetItem(ret, id++, buildPyValue(get<1>(v)));
+		return ret;
+	}
+
+	template<typename _TyTuple, size_t _Order = 0>
+	typename enable_if< _Order >=
+		tuple_size<typename remove_cv<typename remove_reference<_TyTuple>::type>::type>::value
+		>::type setTuple(PyObject* t, _TyTuple&& v)
+	{
+	}
+
+	template<typename _TyTuple, size_t _Order = 0>
+	typename enable_if<_Order < 
+		tuple_size<typename remove_cv<typename remove_reference<_TyTuple>::type>::type>::value
+		>::type setTuple(PyObject* t, _TyTuple&& v)
+	{
+		PyTuple_SetItem(t, _Order, buildPyValue(get<_Order>(v)));
+		return setTuple<_TyTuple, _Order + 1>(t, forward<_TyTuple>(v));
+	}
+
+	template<typename ..._Ty>
+	PyObject* buildPyValue(const tuple<_Ty...>& v)
+	{
+		auto ret = PyTuple_New(tuple_size<tuple<_Ty...>>::value);
+		setTuple<>(ret, v);
 		return ret;
 	}
 

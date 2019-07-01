@@ -1547,7 +1547,7 @@ float ChronoGramModel::LLEvaluater::operator()(float timePoint) const
 		return log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-5f);
 	};
 	float pa = max(tgm.getTimePrior(tCoef), 1e-5f);
-	float ll = (timePrior ? timePrior : defaultPrior)(tgm.unnormalizedTimePoint(timePoint)) * timePriorWeight;
+	float ll = (timePrior && timePriorWeight ? timePrior : defaultPrior)(tgm.unnormalizedTimePoint(timePoint)) * timePriorWeight;
 	unordered_map<uint32_t, uint32_t> count;
 
 	for (size_t i = 0; i < N; ++i)
