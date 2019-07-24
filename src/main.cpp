@@ -27,12 +27,12 @@ struct Args
 	float minT = INFINITY, maxT = -INFINITY;
 	vector<string> input;
 	int worker = 0, window = 4, dimension = 100;
-	int order = 5, epoch = 1, negative = 5, temporalSample = 5;
+	int order = 5, negative = 5, temporalSample = 5;
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
 	int nsQ = 8, initStep = 8;
-	float eta = 1.f, zeta = .5f, lambda = .1f, padding = -1;
-	float fixedInit = 0, threshold = 0.0025f;
+	float eta = 1.f, zeta = .1f, lambda = .1f, padding = -1;
+	float initEpochs = 0, epoch = 1, threshold = 0.0025f;
 	float timePrior = 0;
 	float subsampling = 1e-4f;
 	bool compressed = true;
@@ -64,10 +64,10 @@ int main(int argc, char* argv[])
 			("W,window", "Size of Window", cxxopts::value<int>())
 			("d,dimension", "Embedding Dimension", cxxopts::value<int>())
 			("r,order", "Order of Chebyshev Polynomial", cxxopts::value<int>())
-			("e,epoch", "Number of Epoch", cxxopts::value<int>())
+			("e,epoch", "Number of Epoch", cxxopts::value<float>())
 			("n,negative", "Negative Sampling Size", cxxopts::value<int>())
 			("T,ts", "Time Negative Weight", cxxopts::value<int>())
-			("F,fixedInit", "Fixed Initializing Weight", cxxopts::value<float>())
+			("F,initEpochs", "Weight-Initializing Epochs", cxxopts::value<float>())
 			("b,batch", "Batch Docs Size", cxxopts::value<int>())
 			("t,minCnt", "Min Count Threshold of Word", cxxopts::value<int>())
 			("report", "", cxxopts::value<int>())
@@ -160,7 +160,7 @@ int main(int argc, char* argv[])
 			READ_OPT(window, int);
 			READ_OPT(dimension, int);
 			READ_OPT(order, int);
-			READ_OPT(epoch, int);
+			READ_OPT(epoch, float);
 			READ_OPT(negative, int);
 			READ_OPT(batch, int);
 			READ_OPT(minCnt, int);
@@ -176,7 +176,7 @@ int main(int argc, char* argv[])
 			READ_OPT(lambda, float);
 			READ_OPT(padding, float);
 			READ_OPT2(ts, temporalSample, int);
-			READ_OPT(fixedInit, float);
+			READ_OPT(initEpochs, float);
 			READ_OPT(threshold, float);
 			READ_OPT(timePrior, float);
 
@@ -229,7 +229,7 @@ int main(int argc, char* argv[])
 		cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
 		cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << "\tLambda: " << args.lambda << endl;
-		cout << "Padding: " << tgm.getPadding() << "\tTemporal Sampling: " << args.temporalSample << "\tFixed Initializing Weight: " << args.fixedInit << endl;
+		cout << "Padding: " << tgm.getPadding() << "\tTemporal Negative Sampling: " << args.temporalSample << "\tWeight-Initializing Epochs: " << args.initEpochs << endl;
 
 		if (args.ngram.empty())
 		{
@@ -283,9 +283,13 @@ int main(int argc, char* argv[])
 			ifstream vocab{ args.vocab };
 			tgm.buildVocabFromDict([&vocab]()
 			{
+				string line;
+				getline(vocab, line);
+				istringstream iss{ line };
 				string w;
+				getline(iss, w, '\t');
 				uint64_t cnt = 0;
-				vocab >> w >> cnt;
+				iss >> cnt;
 				return make_pair(w, cnt);
 			}, args.minT, args.maxT);
 
@@ -314,15 +318,27 @@ int main(int argc, char* argv[])
 
 		if (args.ngram.empty())
 		{
+			if (args.initEpochs)
+			{
+				cout << "Initializing weights ... " << endl;
+				tgm.template train<true>(MultipleReader::factory(args.input),
+					args.worker, args.window, .025f, .00025f, args.batch, args.initEpochs, args.report);
+			}
+			cout << "Training ... " << endl;
 			tgm.train(MultipleReader::factory(args.input),
-				args.worker, args.window, args.fixedInit,
-				.025f, args.batch, args.epoch, args.report);
+				args.worker, args.window, .025f, .00025f, args.batch, args.epoch, args.report);
 		}
 		else
 		{
+			if (args.initEpochs)
+			{
+				cout << "Initializing weights ... " << endl;
+				tgm.template trainFromGNgram<true>(GNgramBinaryReader::factory(args.ngram),
+					args.maxItem, args.worker, .025f, .00025f, args.batch, args.initEpochs, args.report);
+			}
+			cout << "Training ... " << endl;
 			tgm.trainFromGNgram(GNgramBinaryReader::factory(args.ngram),
-				args.maxItem, args.worker, args.fixedInit,
-				.025f, args.batch, args.epoch, args.report);
+				args.maxItem, args.worker, .025f, .00025f, args.batch, args.epoch, args.report);
 		}
 
 		cout << "Finished in " << timer.getElapsed() << " sec" << endl;

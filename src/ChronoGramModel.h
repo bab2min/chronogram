@@ -146,10 +146,10 @@ private:
 	static Eigen::VectorXf makeDCoef(size_t L, float z);
 	Eigen::VectorXf makeTimedVector(size_t wv, const Eigen::VectorXf& coef) const;
 
-	template<bool _Fixed = false>
+	template<bool _Initialization = false>
 	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight);
 
-	template<bool _Fixed = false>
+	template<bool _Initialization = false>
 	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
@@ -165,13 +165,13 @@ private:
 	void buildModel();
 	void buildTable();
 
-	template<bool _Fixed = false, bool _GNgramMode = false>
-	void trainVectors(const uint32_t* ws, size_t N, float timePoint,
-		size_t windowLen, float start_lr, size_t nEpoch, size_t report);
+	template<bool _Initialization = false, bool _GNgramMode = false>
+	size_t trainVectors(const uint32_t* ws, size_t N, float timePoint,
+		size_t windowLen, float lr);
 
-	template<bool _Fixed = false, bool _GNgramMode = false>
-	void trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
-		size_t windowLen, float start_lr, size_t nEpoch, size_t report, ThreadLocalData& ld);
+	template<bool _Initialization = false, bool _GNgramMode = false>
+	size_t trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
+		size_t windowLen, float lr, ThreadLocalData& ld);
 	void trainTimePrior(const float* ts, size_t N, float lr, size_t report);
 	void normalizeWordDist(bool updateVocab = true);
 
@@ -234,13 +234,16 @@ public:
 	size_t recountVocab(const std::function<ResultReader()>& reader, float minT, float maxT, size_t numWorkers);
 	size_t recountVocab(const std::function<GNgramResultReader()>& reader, float minT, float maxT, size_t numWorkers);
 	bool addFixedWord(const std::string& word);
-	void train(const std::function<ResultReader()>& reader, size_t numWorkers = 0,
-		size_t windowLen = 4, float fixedInit = 0.f,
-		float start_lr = .025f, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
 
 	void buildVocabFromDict(const std::function<std::pair<std::string, uint64_t>()>& reader, float minT, float maxT);
+
+	template<bool _Initialization = false>
+	void train(const std::function<ResultReader()>& reader, size_t numWorkers = 0,
+		size_t windowLen = 4, float start_lr = .025f, float end_lr = .00025f, size_t batchSents = 1000, float epochs = 1, size_t report = 10000);
+
+	template<bool _Initialization = false>
 	void trainFromGNgram(const std::function<GNgramResultReader()>& reader, uint64_t maxItems, size_t numWorkers = 0,
-		float fixedInit = 0.f, float start_lr = .025f, size_t batchSents = 1000, size_t epochs = 1, size_t report = 10000);
+		float start_lr = .025f, float end_lr = .00025f, size_t batchSents = 1000, float epochs = 1, size_t report = 10000);
 
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
 	float angleOfWord(const std::string& word, size_t step = 100) const;
@@ -304,3 +307,7 @@ public:
 	float getPadding() const { return timePadding; }
 };
 
+template void ChronoGramModel::train<false>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);
+template void ChronoGramModel::train<true>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);
+template void ChronoGramModel::trainFromGNgram<false>(const std::function<GNgramResultReader()>&, uint64_t, size_t, float, float, size_t, float, size_t);
+template void ChronoGramModel::trainFromGNgram<true>(const std::function<GNgramResultReader()>&, uint64_t, size_t, float, float, size_t, float, size_t);

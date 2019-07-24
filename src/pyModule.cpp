@@ -2,6 +2,7 @@
 #include <iostream>
 
 #include "ChronoGramModel.h"
+#include "DataReader.h"
 #include "PyUtils.h"
 #include "pyDocs.h"
 
@@ -66,6 +67,60 @@ struct CGMObject
 		}
 		return 0;
 	}
+
+	static PyObject* getVocabs(CGMObject *self, void* closure);
+};
+
+struct CGVObject
+{
+	PyObject_HEAD;
+	CGMObject* parentObj;
+
+	static void dealloc(CGVObject* self)
+	{
+		Py_XDECREF(self->parentObj);
+		Py_TYPE(self)->tp_free((PyObject*)self);
+	}
+
+	static int init(CGVObject *self, PyObject *args, PyObject *kwargs)
+	{
+		static const char* kwlist[] = { "parent", nullptr };
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", (char**)kwlist, &self->parentObj)) return -1;
+		Py_INCREF(self->parentObj);
+		return 0;
+	}
+
+	static Py_ssize_t length(CGVObject* self)
+	{
+		try
+		{
+			return self->parentObj->inst->getVocabs().size();
+		}
+		catch (const exception& e)
+		{
+			PyErr_SetString(PyExc_Exception, e.what());
+			return -1;
+		}
+	}
+
+	static PyObject* getItem(CGVObject* self, Py_ssize_t key)
+	{
+		try
+		{
+			if (key < self->parentObj->inst->getVocabs().size()) return py::buildPyValue(self->parentObj->inst->getVocabs()[key]);
+			PyErr_SetString(PyExc_IndexError, "");
+			return nullptr;
+		}
+		catch (const bad_exception&)
+		{
+			return nullptr;
+		}
+		catch (const exception& e)
+		{
+			PyErr_SetString(PyExc_Exception, e.what());
+			return nullptr;
+		}
+	}
 };
 
 struct CGEObject
@@ -126,7 +181,11 @@ struct CGEObject
 static PyObject* CGM_load(PyObject*, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_save(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_buildVocab(CGMObject* self, PyObject* args, PyObject *kwargs);
+static PyObject* CGM_initialize(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_train(CGMObject* self, PyObject* args, PyObject *kwargs);
+static PyObject* CGM_buildVocabGN(CGMObject* self, PyObject* args, PyObject *kwargs);
+static PyObject* CGM_initializeGN(CGMObject* self, PyObject* args, PyObject *kwargs);
+static PyObject* CGM_trainGN(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_mostSimilar(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_similarity(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_getEmbedding(CGMObject* self, PyObject* args, PyObject *kwargs);
@@ -140,7 +199,11 @@ static PyMethodDef CGM_methods[] =
 	{ "load", (PyCFunction)CGM_load, METH_STATIC | METH_VARARGS | METH_KEYWORDS, CGM_load__doc__ },
 	{ "save", (PyCFunction)CGM_save, METH_VARARGS | METH_KEYWORDS, CGM_save__doc__ },
 	{ "build_vocab", (PyCFunction)CGM_buildVocab, METH_VARARGS | METH_KEYWORDS, CGM_build_vocab__doc__ },
+	{ "initialize", (PyCFunction)CGM_initialize, METH_VARARGS | METH_KEYWORDS, CGM_initialize__doc__ },
 	{ "train", (PyCFunction)CGM_train, METH_VARARGS | METH_KEYWORDS, CGM_train__doc__ },
+	{ "build_vocab_gn", (PyCFunction)CGM_buildVocabGN, METH_VARARGS | METH_KEYWORDS, CGM_build_vocab_gn__doc__ },
+	{ "initialize_gn", (PyCFunction)CGM_initializeGN, METH_VARARGS | METH_KEYWORDS, CGM_initialize_gn__doc__ },
+	{ "train_gn", (PyCFunction)CGM_trainGN, METH_VARARGS | METH_KEYWORDS, CGM_train_gn__doc__ },
 	{ "most_similar", (PyCFunction)CGM_mostSimilar, METH_VARARGS | METH_KEYWORDS, CGM_most_similar__doc__ },
 	{ "similarity", (PyCFunction)CGM_similarity, METH_VARARGS | METH_KEYWORDS, CGM_similarity__doc__ },
 	{ "get_embedding", (PyCFunction)CGM_getEmbedding, METH_VARARGS | METH_KEYWORDS, CGM_get_embedding__doc__ },
@@ -164,8 +227,9 @@ static PyGetSetDef CGM_getseters[] = {
 	{ (char*)"l", (getter)CGM_getL, nullptr, (char*)"chebyshev approximation order", NULL },
 	{ (char*)"zeta", (getter)CGM_getZeta, nullptr, (char*)"zeta, mixing factor", NULL },
 	{ (char*)"lambda_v", (getter)CGM_getLambda, nullptr, (char*)"lambda", NULL },
-	{ (char*)"min_time", (getter)CGM_getMinPoint, nullptr, (char*)"", NULL },
-	{ (char*)"max_time", (getter)CGM_getMaxPoint, nullptr, (char*)"", NULL },
+	{ (char*)"min_time", (getter)CGM_getMinPoint, nullptr, (char*)"time range", NULL },
+	{ (char*)"max_time", (getter)CGM_getMaxPoint, nullptr, (char*)"time range", NULL },
+	{ (char*)"vocabs", (getter)CGMObject::getVocabs, nullptr, (char*)"vocabularies in the model", NULL },
 	{ nullptr },
 };
 
@@ -211,6 +275,55 @@ static PyTypeObject CGM_type = {
 	PyType_GenericNew,
 };
 
+static PySequenceMethods CGV_seqs = {
+	(lenfunc)CGVObject::length,
+	0,
+	0,
+	(ssizeargfunc)CGVObject::getItem,
+};
+
+static PyTypeObject CGV_type = {
+	PyVarObject_HEAD_INIT(NULL, 0)
+	"chronogram._Vocabs",             /* tp_name */
+	sizeof(CGVObject), /* tp_basicsize */
+	0,                         /* tp_itemsize */
+	(destructor)CGVObject::dealloc, /* tp_dealloc */
+	0,                         /* tp_print */
+	0,                         /* tp_getattr */
+	0,                         /* tp_setattr */
+	0,                         /* tp_reserved */
+	0,                         /* tp_repr */
+	0,                         /* tp_as_number */
+	&CGV_seqs,                         /* tp_as_sequence */
+	0,                         /* tp_as_mapping */
+	0,                         /* tp_hash  */
+	0,  /* tp_call */
+	0,                         /* tp_str */
+	0,                         /* tp_getattro */
+	0,                         /* tp_setattro */
+	0,                         /* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,   /* tp_flags */
+	CGV___init____doc__,           /* tp_doc */
+	0,                         /* tp_traverse */
+	0,                         /* tp_clear */
+	0,                         /* tp_richcompare */
+	0,                         /* tp_weaklistoffset */
+	0,                         /* tp_iter */
+	0,                         /* tp_iternext */
+	0,             /* tp_methods */
+	0,						 /* tp_members */
+	0,                         /* tp_getset */
+	0,                         /* tp_base */
+	0,                         /* tp_dict */
+	0,                         /* tp_descr_get */
+	0,                         /* tp_descr_set */
+	0,                         /* tp_dictoffset */
+	(initproc)CGVObject::init,      /* tp_init */
+	PyType_GenericAlloc,
+	PyType_GenericNew,
+};
+
+
 static PyTypeObject CGE_type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	"chronogram._LLEvaluator",             /* tp_name */
@@ -232,7 +345,7 @@ static PyTypeObject CGE_type = {
 	0,                         /* tp_setattro */
 	0,                         /* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,   /* tp_flags */
-	CGM___init____doc__,           /* tp_doc */
+	CGE___init____doc__,           /* tp_doc */
 	0,                         /* tp_traverse */
 	0,                         /* tp_clear */
 	0,                         /* tp_richcompare */
@@ -252,6 +365,23 @@ static PyTypeObject CGE_type = {
 	PyType_GenericNew,
 };
 
+PyObject* CGMObject::getVocabs(CGMObject *self, void* closure)
+{
+	try
+	{
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		return PyObject_CallObject((PyObject*)&CGV_type, Py_BuildValue("(N)", self));
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
+}
 
 PyObject * CGM_load(PyObject *, PyObject * args, PyObject * kwargs)
 {
@@ -385,18 +515,136 @@ PyObject * CGM_buildVocab(CGMObject * self, PyObject * args, PyObject * kwargs)
 	}
 }
 
-PyObject * CGM_train(CGMObject * self, PyObject * args, PyObject * kwargs)
+PyObject * CGM_initialize(CGMObject * self, PyObject * args, PyObject * kwargs)
 {
 	PyObject* reader = nullptr;
-	size_t workers = 0, windowLen = 4, batchSents = 1000, epochs = 1, report = 10000;
-	float initEpochs = 0, startLR = 0.025;
-	static const char* kwlist[] = { "reader", "workers", "window_len", "init_epochs", "start_lr", "batch_size", "epochs", "report", nullptr };
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnffnnn", (char**)kwlist, 
-		&reader, &workers, &windowLen, &initEpochs, &startLR, &batchSents, &epochs, &report)) return nullptr;
+	size_t workers = 0, windowLen = 4, batchSents = 1000, report = 10000;
+	float startLR = 0.025, endLR = 0.00025, epochs = 1;
+	static const char* kwlist[] = { "reader", "workers", "window_len", "start_lr", "end_lr", "batch_size", "epochs", "report", nullptr };
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnffnfn", (char**)kwlist,
+		&reader, &workers, &windowLen, &startLR, &endLR, &batchSents, &epochs, &report)) return nullptr;
 	try
 	{
 		if (!self->inst) throw runtime_error{ "inst is null" };
-		self->inst->train(makeCGMReader(reader), workers, windowLen, initEpochs, startLR, batchSents, epochs, report);
+		self->inst->template train<true>(makeCGMReader(reader), workers, windowLen, startLR, endLR, batchSents, epochs, report);
+		Py_INCREF(Py_None);
+		return Py_None;
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
+}
+
+PyObject * CGM_train(CGMObject * self, PyObject * args, PyObject * kwargs)
+{
+	PyObject* reader = nullptr;
+	size_t workers = 0, windowLen = 4, batchSents = 1000, report = 10000;
+	float startLR = 0.025, endLR = 0.00025, epochs = 1;
+	static const char* kwlist[] = { "reader", "workers", "window_len", "start_lr", "end_lr", "batch_size", "epochs", "report", nullptr };
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnffnfn", (char**)kwlist, 
+		&reader, &workers, &windowLen, &startLR, &endLR, &batchSents, &epochs, &report)) return nullptr;
+	try
+	{
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		self->inst->train(makeCGMReader(reader), workers, windowLen, startLR, endLR, batchSents, epochs, report);
+		Py_INCREF(Py_None);
+		return Py_None;
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
+}
+
+PyObject * CGM_buildVocabGN(CGMObject * self, PyObject * args, PyObject * kwargs)
+{
+	const char* vocabFile = nullptr;
+	float minT, maxT;
+	static const char* kwlist[] = { "vocab_file", "min_time", "max_time", nullptr };
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "sff", (char**)kwlist, &vocabFile, &minT, &maxT)) return nullptr;
+	try
+	{
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		ifstream vocab{ vocabFile };
+		if (!vocab)
+		{
+			PyErr_SetString(PyExc_IOError, vocabFile);
+			throw bad_exception{};
+		}
+		self->inst->buildVocabFromDict([&vocab]()
+		{
+			string line;
+			getline(vocab, line);
+			istringstream iss{ line };
+			string w;
+			getline(iss, w, '\t');
+			uint64_t cnt = 0;
+			iss >> cnt;
+			return make_pair(w, cnt);
+		}, minT, maxT);
+		Py_INCREF(Py_None);
+		return Py_None;
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
+}
+
+PyObject * CGM_initializeGN(CGMObject * self, PyObject * args, PyObject * kwargs)
+{
+	const char* ngram;
+	size_t workers = 0, maxItems = -1, batchSents = 1000, report = 10000;
+	float startLR = 0.025, endLR = 0.00025, epochs = 1;
+	static const char* kwlist[] = { "ngram_file", "max_items", "workers", "start_lr", "end_lr", "batch_size", "epochs", "report", nullptr };
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|nnffnfn", (char**)kwlist,
+		&ngram, &maxItems, &workers, &startLR, &endLR, &batchSents, &epochs, &report)) return nullptr;
+	try
+	{
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		self->inst->template trainFromGNgram<true>(GNgramBinaryReader::factory(ngram), maxItems, workers, startLR, endLR, batchSents, epochs, report);
+		Py_INCREF(Py_None);
+		return Py_None;
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
+}
+
+PyObject * CGM_trainGN(CGMObject * self, PyObject * args, PyObject * kwargs)
+{
+	const char* ngram;
+	size_t workers = 0, maxItems = -1, batchSents = 1000, report = 10000;
+	float startLR = 0.025, endLR = 0.00025, epochs = 1;
+	static const char* kwlist[] = { "ngram_file", "max_items", "workers", "start_lr", "end_lr", "batch_size", "epochs", "report", nullptr };
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|nnffnfn", (char**)kwlist,
+		&ngram, &maxItems, &workers, &startLR, &endLR, &batchSents, &epochs, &report)) return nullptr;
+	try
+	{
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		self->inst->trainFromGNgram(GNgramBinaryReader::factory(ngram), maxItems, workers, startLR, endLR, batchSents, epochs, report);
 		Py_INCREF(Py_None);
 		return Py_None;
 	}
@@ -659,12 +907,13 @@ PyMODINIT_FUNC MODULE_NAME()
 	{
 		PyModuleDef_HEAD_INIT,
 		"chronogram",
-		"Chrono-gram, the diachronic word embedding model for Python",
+		"Chrono-gram, The Diachronic Word Embedding Model",
 		-1,
 		nullptr,
 	};
 
 	if (PyType_Ready(&CGM_type) < 0) return nullptr;
+	if (PyType_Ready(&CGV_type) < 0) return nullptr;
 	if (PyType_Ready(&CGE_type) < 0) return nullptr;
 
 	gModule = PyModule_Create(&mod);
@@ -685,5 +934,7 @@ PyMODINIT_FUNC MODULE_NAME()
 	PyModule_AddObject(gModule, "Chronogram", (PyObject*)&CGM_type);
 	Py_INCREF(&CGE_type);
 	PyModule_AddObject(gModule, "_LLEvaluator", (PyObject*)&CGE_type);
+	Py_INCREF(&CGV_type);
+	PyModule_AddObject(gModule, "_Vocabs", (PyObject*)&CGE_type);
 	return gModule;
 }
