@@ -943,8 +943,6 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 	const vector<pair<string, float>>& negativeWords,
 	float searchingTimePoint, float m, size_t K) const
 {
-	constexpr float threshold = 0.4f;
-	constexpr float bias = 0.2f;
 	VectorXf vec = VectorXf::Zero(M);
 	const size_t V = vocabs.size();
 	unordered_set<size_t> uniqs;
@@ -957,7 +955,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		float tPrior = getTimePrior(cf);
 		VectorXf tv = makeTimedVector(wv, cf);
 		float wPrior = getWordProbByTime(wv, tv, tPrior);
-		if (wPrior / (tPrior + bias) < threshold) return {};
+		if (wPrior / (tPrior + tpvBias) < tpvThreshold) return {};
 		vec += tv * (1 - m) + out.col(wv) * m;
 		uniqs.emplace(wv);
 	}
@@ -970,7 +968,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		float tPrior = getTimePrior(cf);
 		VectorXf tv = makeTimedVector(wv, cf);
 		float wPrior = getWordProbByTime(wv, tv, tPrior);
-		if (wPrior / (tPrior + bias) < threshold) return {};
+		if (wPrior / (tPrior + tpvBias) < tpvThreshold) return {};
 		vec -= tv * (1 - m) + out.col(wv) * m;
 		uniqs.emplace(wv);
 	}
@@ -988,7 +986,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		}
 		VectorXf tv = makeTimedVector(v, coef);
 		float wPrior = getWordProbByTime(v, tv, tPrior);
-		if (wPrior / (tPrior + bias) < threshold)
+		if (wPrior / (tPrior + tpvBias) < tpvThreshold)
 		{
 			sim[v] = make_pair(-INFINITY, wPrior / tPrior);
 			continue;
@@ -1062,16 +1060,14 @@ vector<pair<string, float>> ChronoGramModel::calcShift(size_t minCnt, float time
 	const size_t V = vocabs.size();
 	float tPrior1 = getTimePrior(coef1);
 	float tPrior2 = getTimePrior(coef2);
-	constexpr float threshold = 0.4f;
-	constexpr float bias = 0.2f;
 
 	for (size_t v = 0; v < V; ++v)
 	{
 		if (frequencies[v] < minCnt) continue;
 		VectorXf v1 = makeTimedVector(v, coef1);
 		VectorXf v2 = makeTimedVector(v, coef2);
-		if (getWordProbByTime(v, v1, tPrior1) / (tPrior1 + bias) < threshold) continue;
-		if (getWordProbByTime(v, v2, tPrior2) / (tPrior2 + bias) < threshold) continue;
+		if (getWordProbByTime(v, v1, tPrior1) / (tPrior1 + tpvBias) < tpvThreshold) continue;
+		if (getWordProbByTime(v, v2, tPrior2) / (tPrior2 + tpvBias) < tpvThreshold) continue;
 		float d;
 		if (m >= 0)
 		{
@@ -1093,8 +1089,6 @@ vector<pair<string, float>> ChronoGramModel::calcShift(size_t minCnt, float time
 
 float ChronoGramModel::sumSimilarity(const string & src, const vector<string>& targets, float timePoint, float m) const
 {
-	constexpr float threshold = 0.4f;
-	constexpr float bias = 0.2f;
 	const size_t V = vocabs.size();
 	unordered_set<size_t> uniqs;
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
@@ -1103,7 +1097,7 @@ float ChronoGramModel::sumSimilarity(const string & src, const vector<string>& t
 	float tPrior = getTimePrior(coef);
 	VectorXf tv = makeTimedVector(wv, coef);
 	float wPrior = getWordProbByTime(wv, tv, tPrior);
-	if (wPrior / (tPrior + bias) < threshold) return -INFINITY;
+	if (wPrior / (tPrior + tpvBias) < tpvThreshold) return -INFINITY;
 	VectorXf vec = (tv * (1 - m) + out.col(wv) * m).normalized();
 
 	vector<size_t> targetWv;
@@ -1119,7 +1113,7 @@ float ChronoGramModel::sumSimilarity(const string & src, const vector<string>& t
 	{
 		VectorXf tv = makeTimedVector(v, coef);
 		float wPrior = getWordProbByTime(v, tv, tPrior);
-		if (wPrior / (tPrior + bias) < threshold) continue;
+		if (wPrior / (tPrior + tpvBias) < tpvThreshold) continue;
 		sum += (tv * (1 - m) + out.col(v) * m).normalized().dot(vec);
 	}
 
@@ -1134,7 +1128,7 @@ float ChronoGramModel::similarity(const string & word1, float time1, const strin
 	return makeTimedVector(wv1, c1).normalized().dot(makeTimedVector(wv2, c2).normalized());
 }
 
-float ChronoGramModel::similarity(const string & word1, const string & word2) const
+float ChronoGramModel::similarityStatic(const string & word1, const string & word2) const
 {
 	size_t wv1 = vocabs.get(word1), wv2 = vocabs.get(word2);
 	if (wv1 == (size_t)-1 || wv2 == (size_t)-1) return 0;

@@ -753,7 +753,7 @@ int main(int argc, char* argv[])
 					<< " and '" << words[1].first << "' @" << words[1].second
 					<< " : " << tgm.similarity(words[0].first, words[0].second, words[1].first, words[1].second) << endl;
 				cout << "Overall similarity between '" << words[0].first << "' and '" << words[1].first
-					<< "' : " << tgm.similarity(words[0].first,words[1].first) << endl;
+					<< "' : " << tgm.similarityStatic(words[0].first,words[1].first) << endl;
 			}
 		}
 		else if (line[0] == '%') // find most similar word using mixed vector

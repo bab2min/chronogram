@@ -52,8 +52,8 @@ DOC_SIGNATURE_EN(CGM_similarity__doc__,
 	"similarity(word1, time1, word2, time2)",
 	u8R""()"");
 
-DOC_SIGNATURE_EN(CGM_get_embedding__doc__,
-	"get_embedding(word, time)",
+DOC_SIGNATURE_EN(CGM_embedding__doc__,
+	"embedding(word, time)",
 	u8R""()"");
 
 DOC_SIGNATURE_EN(CGM_most_similar_s__doc__,
@@ -64,8 +64,16 @@ DOC_SIGNATURE_EN(CGM_similarity_s__doc__,
 	"similarity_s(word1, word2)",
 	u8R""()"");
 
-DOC_SIGNATURE_EN(CGM_get_embedding_s__doc__,
-	"get_embedding_s(word)",
+DOC_SIGNATURE_EN(CGM_embedding_s__doc__,
+	"embedding_s(word)",
+	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_p_time__doc__,
+	"p_time(time)",
+	u8R""()"");
+
+DOC_SIGNATURE_EN(CGM_p_time_word__doc__,
+	"p_time_word(time, word)",
 	u8R""()"");
 
 DOC_SIGNATURE_EN(CGM_evaluator__doc__,

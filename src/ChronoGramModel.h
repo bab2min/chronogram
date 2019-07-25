@@ -126,6 +126,8 @@ private:
 	Eigen::VectorXf timePrior; // (L, 1)
 	Eigen::VectorXf vEta;
 
+	float tpvThreshold = 0.25f, tpvBias = 0.0625f;
+
 	size_t totalWords = 0, totalTimePoints = 0;
 	size_t procWords = 0, lastProcWords = 0, procTimePoints = 0;
 	size_t totalLLCnt = 0, timeLLCnt = 0;
@@ -261,7 +263,7 @@ public:
 	std::vector<std::pair<std::string, float>> calcShift(size_t minCnt, float time1, float time2, float m = 0) const;
 	float sumSimilarity(const std::string& src, const std::vector<std::string>& targets, float timePoint, float m) const;
 	float similarity(const std::string& word1, float time1, const std::string& word2, float time2) const;
-	float similarity(const std::string& word1, const std::string& word2) const;
+	float similarityStatic(const std::string& word1, const std::string& word2) const;
 
 	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen,
 		size_t nsQ = 16, const std::function<float(float)>& timePrior = {}, float timePriorWeight = 0) const;
@@ -305,6 +307,11 @@ public:
 
 	void setPadding(float padding) { timePadding = padding; }
 	float getPadding() const { return timePadding; }
+
+	void setTPBias(float _tpvBias) { tpvBias = _tpvBias; }
+	float getTPBias() const { return tpvBias; }
+	void setTPThreshold(float _tpvThreshold) { tpvThreshold = _tpvThreshold; }
+	float getTPThreshold() const { return tpvThreshold; }
 };
 
 template void ChronoGramModel::train<false>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);

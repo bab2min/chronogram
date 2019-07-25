@@ -193,6 +193,8 @@ static PyObject* CGM_mostSimilarStatic(CGMObject* self, PyObject* args, PyObject
 static PyObject* CGM_similarityStatic(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_getEmbeddingStatic(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_evaluator(CGMObject* self, PyObject* args, PyObject *kwargs);
+static PyObject* CGM_pTime(CGMObject* self, PyObject* args, PyObject *kwargs);
+static PyObject* CGM_pTimeWord(CGMObject* self, PyObject* args, PyObject *kwargs);
 
 static PyMethodDef CGM_methods[] =
 {
@@ -206,10 +208,12 @@ static PyMethodDef CGM_methods[] =
 	{ "train_gn", (PyCFunction)CGM_trainGN, METH_VARARGS | METH_KEYWORDS, CGM_train_gn__doc__ },
 	{ "most_similar", (PyCFunction)CGM_mostSimilar, METH_VARARGS | METH_KEYWORDS, CGM_most_similar__doc__ },
 	{ "similarity", (PyCFunction)CGM_similarity, METH_VARARGS | METH_KEYWORDS, CGM_similarity__doc__ },
-	{ "get_embedding", (PyCFunction)CGM_getEmbedding, METH_VARARGS | METH_KEYWORDS, CGM_get_embedding__doc__ },
+	{ "embedding", (PyCFunction)CGM_getEmbedding, METH_VARARGS | METH_KEYWORDS, CGM_embedding__doc__ },
 	{ "most_similar_s", (PyCFunction)CGM_mostSimilarStatic, METH_VARARGS | METH_KEYWORDS, CGM_most_similar_s__doc__ },
 	{ "similarity_s", (PyCFunction)CGM_similarityStatic, METH_VARARGS | METH_KEYWORDS, CGM_similarity_s__doc__ },
-	{ "get_embedding_s", (PyCFunction)CGM_getEmbeddingStatic, METH_VARARGS | METH_KEYWORDS, CGM_get_embedding_s__doc__ },
+	{ "embedding_s", (PyCFunction)CGM_getEmbeddingStatic, METH_VARARGS | METH_KEYWORDS, CGM_embedding_s__doc__ },
+	{ "p_time", (PyCFunction)CGM_pTime, METH_VARARGS | METH_KEYWORDS, CGM_p_time__doc__ },
+	{ "p_time_word", (PyCFunction)CGM_pTimeWord, METH_VARARGS | METH_KEYWORDS, CGM_p_time_word__doc__ },
 	{ "evaluator", (PyCFunction)CGM_evaluator, METH_VARARGS | METH_KEYWORDS, CGM_evaluator__doc__ },
 	{ nullptr }
 };
@@ -221,6 +225,50 @@ DEFINE_GETTER(getLambda);
 DEFINE_GETTER(getPadding);
 DEFINE_GETTER(getMinPoint);
 DEFINE_GETTER(getMaxPoint);
+DEFINE_GETTER(getTPBias);
+DEFINE_GETTER(getTPThreshold);
+
+static int CGM_setTPBias(CGMObject *self, PyObject *value, void *closure) 
+{
+	try
+	{
+		if (!self->inst) throw runtime_error{ "inst is null" }; 
+		float v = PyFloat_AsDouble(value);
+		if (v == -1 && PyErr_Occurred()) throw bad_exception{};
+		self->inst->setTPBias(v);
+		return 0;
+	}
+	catch (const bad_exception&)
+	{
+		return -1; 
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what()); 
+		return -1; 
+	}
+}
+
+static int CGM_setTPThreshold(CGMObject *self, PyObject *value, void *closure)
+{
+	try
+	{
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		float v = PyFloat_AsDouble(value);
+		if (v == -1 && PyErr_Occurred()) throw bad_exception{};
+		self->inst->setTPThreshold(v);
+		return 0;
+	}
+	catch (const bad_exception&)
+	{
+		return -1;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return -1;
+	}
+}
 
 static PyGetSetDef CGM_getseters[] = {
 	{ (char*)"m", (getter)CGM_getM, nullptr, (char*)"embedding dimension", NULL },
@@ -230,6 +278,8 @@ static PyGetSetDef CGM_getseters[] = {
 	{ (char*)"min_time", (getter)CGM_getMinPoint, nullptr, (char*)"time range", NULL },
 	{ (char*)"max_time", (getter)CGM_getMaxPoint, nullptr, (char*)"time range", NULL },
 	{ (char*)"vocabs", (getter)CGMObject::getVocabs, nullptr, (char*)"vocabularies in the model", NULL },
+	{ (char*)"tp_bias", (getter)CGM_getTPBias, (setter)CGM_setTPBias, (char*)"bias of whole temporal distribution", NULL },
+	{ (char*)"tp_threshold", (getter)CGM_getTPThreshold, (setter)CGM_setTPThreshold, (char*)"filtering threshold on temporal probability", NULL },
 	{ nullptr },
 };
 
@@ -888,6 +938,51 @@ PyObject * CGM_evaluator(CGMObject * self, PyObject * args, PyObject * kwargs)
 			return v;
 		}, timePriorWeight) };
 		return PyObject_CallObject((PyObject*)&CGE_type, Py_BuildValue(timePrior ? "(NnN)" : "(Nns)", self, e, timePrior));
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
+}
+
+PyObject * CGM_pTime(CGMObject * self, PyObject * args, PyObject * kwargs)
+{
+	try
+	{
+		float time;
+		static const char* kwlist[] = { "time", nullptr };
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "f", (char**)kwlist, &time)) return nullptr;
+
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		return py::buildPyValue(self->inst->getTimePrior(time));
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
+}
+
+PyObject * CGM_pTimeWord(CGMObject * self, PyObject * args, PyObject * kwargs)
+{
+	try
+	{
+		float time;
+		const char* word;
+		static const char* kwlist[] = { "time", "word", nullptr };
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "fs", (char**)kwlist, &time, &word)) return nullptr;
+
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		return py::buildPyValue(self->inst->getWordProbByTime(word, time));
 	}
 	catch (const bad_exception&)
 	{
