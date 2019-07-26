@@ -1,5 +1,6 @@
 #include <fstream>
 #include <iostream>
+#include <memory>
 
 #include "ChronoGramModel.h"
 #include "DataReader.h"
@@ -228,6 +229,27 @@ DEFINE_GETTER(getMaxPoint);
 DEFINE_GETTER(getTPBias);
 DEFINE_GETTER(getTPThreshold);
 
+static int CGM_setPadding(CGMObject *self, PyObject *value, void *closure)
+{
+	try
+	{
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		float v = PyFloat_AsDouble(value);
+		if (v == -1 && PyErr_Occurred()) throw bad_exception{};
+		self->inst->setPadding(v);
+		return 0;
+	}
+	catch (const bad_exception&)
+	{
+		return -1;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return -1;
+	}
+}
+
 static int CGM_setTPBias(CGMObject *self, PyObject *value, void *closure) 
 {
 	try
@@ -278,6 +300,7 @@ static PyGetSetDef CGM_getseters[] = {
 	{ (char*)"min_time", (getter)CGM_getMinPoint, nullptr, (char*)"time range", NULL },
 	{ (char*)"max_time", (getter)CGM_getMaxPoint, nullptr, (char*)"time range", NULL },
 	{ (char*)"vocabs", (getter)CGMObject::getVocabs, nullptr, (char*)"vocabularies in the model", NULL },
+	{ (char*)"padding", (getter)CGM_getPadding, (setter)CGM_setPadding, (char*)"padding", NULL },
 	{ (char*)"tp_bias", (getter)CGM_getTPBias, (setter)CGM_setTPBias, (char*)"bias of whole temporal distribution", NULL },
 	{ (char*)"tp_threshold", (getter)CGM_getTPThreshold, (setter)CGM_setTPThreshold, (char*)"filtering threshold on temporal probability", NULL },
 	{ nullptr },
@@ -836,7 +859,7 @@ PyObject * CGM_mostSimilarStatic(CGMObject * self, PyObject * args, PyObject * k
 		}
 		else
 		{
-			PyObject *iter = PyObject_GetIter(obj), *item;
+			PyObject *iter = PyObject_GetIter(obj);
 			if (!iter) throw runtime_error{ "'positives' and 'negatives' should be str or its list" };
 			ret = py::makeIterToVector(iter);
 			Py_XDECREF(iter);
@@ -873,7 +896,7 @@ PyObject * CGM_similarityStatic(CGMObject * self, PyObject * args, PyObject * kw
 			&word1, &word2)) return nullptr;
 
 		if (!self->inst) throw runtime_error{ "inst is null" };
-		return py::buildPyValue(self->inst->similarity(word1, word2));
+		return py::buildPyValue(self->inst->similarityStatic(word1, word2));
 	}
 	catch (const bad_exception&)
 	{

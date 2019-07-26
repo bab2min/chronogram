@@ -1,5 +1,6 @@
 #include <iterator>
 #include <functional>
+#include <memory>
 #include "DataReader.h"
 #include "IOUtils.h"
 

@@ -10,7 +10,7 @@ with open(os.path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 sources = []
 for f in os.listdir(os.path.join(here, 'src')):
-    if f.endswith('.cpp'): sources.append('src/' + f)
+    if f.endswith('.cpp') and not f.endswith('main.cpp'): sources.append('src/' + f)
 
 if os.name == 'nt': 
     cargs = ['/O2', '/MT', '/Gy']
@@ -37,7 +37,7 @@ for arch, aopt in arch_levels.items():
 setup(
     name='chronogram',
 
-    version='0.0.0',
+    version='0.1.0',
 
     description='Chrono-gram, the diachronic word embedding model based on Word2vec Skip-gram with Chebyshev approximation',
     long_description=long_description,
@@ -74,5 +74,5 @@ setup(
 
     packages = ['chronogram'],
     include_package_data=True,
-    #ext_modules = modules
+    ext_modules = modules
 )

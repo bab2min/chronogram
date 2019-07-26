@@ -9,8 +9,12 @@
 using namespace std;
 using namespace Eigen;
 
-#define DEBUG_PRINT(out, x) (out << #x << ": " << x << endl)
+template void ChronoGramModel::train<false>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);
+template void ChronoGramModel::train<true>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);
+template void ChronoGramModel::trainFromGNgram<false>(const std::function<GNgramResultReader()>&, uint64_t, size_t, float, float, size_t, float, size_t);
+template void ChronoGramModel::trainFromGNgram<true>(const std::function<GNgramResultReader()>&, uint64_t, size_t, float, float, size_t, float, size_t);
 
+#define DEBUG_PRINT(out, x) (out << #x << ": " << x << endl)
 
 void ChronoGramModel::buildModel()
 {
@@ -638,7 +642,6 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 	procTimePoints = 0;
 	timer.reset();
 
-	size_t read = 0;
 	const auto& procCollection = [&]()
 	{
 		if (collections.empty()) return;
@@ -790,7 +793,6 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 	procTimePoints = 0;
 	timer.reset();
 
-	size_t read = 0;
 	const auto& procCollection = [&]()
 	{
 		if (collections.empty()) return;
@@ -1512,7 +1514,7 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
 		for (auto& p : count)
 		{
 			auto& cx = coefs.find(p.first)->second;
-			float nll = 0, dnll = 0, ddnll = 0;
+			float nll = 0, dnll = 0;
 			float denom = 0;
 			for (size_t j = cx.n; j < V; j += nsQ)
 			{

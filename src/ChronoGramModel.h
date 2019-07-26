@@ -119,7 +119,7 @@ private:
 	size_t L; // order of Lengendre polynomial
 	float subsampling;
 	float zBias = 0, zSlope = 1;
-	float eta = 1.f, zeta = .5f, lambda = .1f;
+	float zeta = .5f, lambda = .1f;
 
 	float timePadding = 0;
 	float timePriorScale = 1;
@@ -185,7 +185,7 @@ public:
 		float _subsampling = 1e-4f, size_t _negativeSampleSize = 5, size_t _timeNegativeSample = 5,
 		float _eta = 1.f, float _zeta = .1f, float _lambda = .1f,
 		size_t seed = std::random_device()())
-		: M(_M), L(_L), subsampling(_subsampling), eta(_eta), zeta(_zeta), lambda(_lambda),
+		: M(_M), L(_L), subsampling(_subsampling), zeta(_zeta), lambda(_lambda),
 		vEta(Eigen::VectorXf::Constant(_L, _eta)),
 		negativeSampleSize(_negativeSampleSize), temporalSample(_timeNegativeSample)
 	{
@@ -313,8 +313,3 @@ public:
 	void setTPThreshold(float _tpvThreshold) { tpvThreshold = _tpvThreshold; }
 	float getTPThreshold() const { return tpvThreshold; }
 };
-
-template void ChronoGramModel::train<false>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);
-template void ChronoGramModel::train<true>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);
-template void ChronoGramModel::trainFromGNgram<false>(const std::function<GNgramResultReader()>&, uint64_t, size_t, float, float, size_t, float, size_t);
-template void ChronoGramModel::trainFromGNgram<true>(const std::function<GNgramResultReader()>&, uint64_t, size_t, float, float, size_t, float, size_t);
