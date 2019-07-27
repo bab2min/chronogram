@@ -255,7 +255,7 @@ public:
 	std::vector<std::tuple<std::string, float, float>> mostSimilar(
 		const std::vector<std::pair<std::string, float>>& positiveWords,
 		const std::vector<std::pair<std::string, float>>& negativeWords,
-		float searchingTimePoint, float m = 0, size_t K = 10) const;
+		float searchingTimePoint, float m = 0, size_t K = 10, bool normalize = false) const;
 	std::vector<std::tuple<std::string, float>> mostSimilarStatic(
 		const std::vector<std::string>& positiveWords,
 		const std::vector<std::string>& negativeWords,

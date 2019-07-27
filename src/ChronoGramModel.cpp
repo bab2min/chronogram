@@ -943,7 +943,7 @@ vector<tuple<string, float, float>> ChronoGramModel::nearestNeighbors(const stri
 vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 	const vector<pair<string, float>>& positiveWords,
 	const vector<pair<string, float>>& negativeWords,
-	float searchingTimePoint, float m, size_t K) const
+	float searchingTimePoint, float m, size_t K, bool normalize) const
 {
 	VectorXf vec = VectorXf::Zero(M);
 	const size_t V = vocabs.size();
@@ -958,7 +958,9 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		VectorXf tv = makeTimedVector(wv, cf);
 		float wPrior = getWordProbByTime(wv, tv, tPrior);
 		if (wPrior / (tPrior + tpvBias) < tpvThreshold) return {};
-		vec += tv * (1 - m) + out.col(wv) * m;
+		VectorXf v = tv * (1 - m) + out.col(wv) * m;
+		if (normalize) v /= v.norm() + 1e-3f;
+		vec += v;
 		uniqs.emplace(wv);
 	}
 
@@ -971,7 +973,9 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		VectorXf tv = makeTimedVector(wv, cf);
 		float wPrior = getWordProbByTime(wv, tv, tPrior);
 		if (wPrior / (tPrior + tpvBias) < tpvThreshold) return {};
-		vec -= tv * (1 - m) + out.col(wv) * m;
+		VectorXf v = tv * (1 - m) + out.col(wv) * m;
+		if (normalize) v /= v.norm() + 1e-3f;
+		vec -= v;
 		uniqs.emplace(wv);
 	}
 

@@ -736,10 +736,10 @@ PyObject * CGM_mostSimilar(CGMObject * self, PyObject * args, PyObject * kwargs)
 {
 	PyObject *positives, *negatives = nullptr;
 	float time = -INFINITY, m = 0;
-	size_t topN = 10;
-	static const char* kwlist[] = { "positives", "negatives", "time", "m", "top_n", nullptr };
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Offn", (char**)kwlist,
-		&positives, &negatives, &time, &m, &topN)) return nullptr;
+	size_t topN = 10, normalize = 0;
+	static const char* kwlist[] = { "positives", "negatives", "time", "m", "top_n", "normalize", nullptr };
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Offnn", (char**)kwlist,
+		&positives, &negatives, &time, &m, &topN, &normalize)) return nullptr;
 	
 	const auto& parseWord = [](PyObject* obj)
 	{
@@ -778,7 +778,7 @@ PyObject * CGM_mostSimilar(CGMObject * self, PyObject * args, PyObject * kwargs)
 		if(time == -INFINITY) time = self->inst->getMinPoint();
 		pos = parseWords(positives);
 		if (negatives) neg = parseWords(negatives);
-		return py::buildPyValue(self->inst->mostSimilar(pos, neg, time, m, topN));
+		return py::buildPyValue(self->inst->mostSimilar(pos, neg, time, m, topN, !!normalize));
 	}
 	catch (const bad_exception&)
 	{

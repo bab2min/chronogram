@@ -45,7 +45,7 @@ DOC_SIGNATURE_EN(CGM_train_gn__doc__,
 	u8R""()"");
 
 DOC_SIGNATURE_EN(CGM_most_similar__doc__,
-	"most_similar(positives, negatives=None, time=None, m=0, topN=10)",
+	"most_similar(positives, negatives=None, time=None, m=0, topN=10, normalize=False)",
 	u8R""()"");
 
 DOC_SIGNATURE_EN(CGM_similarity__doc__,
