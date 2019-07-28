@@ -957,7 +957,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		float tPrior = getTimePrior(cf);
 		VectorXf tv = makeTimedVector(wv, cf);
 		float wPrior = getWordProbByTime(wv, tv, tPrior);
-		if (wPrior / (tPrior + tpvBias) < tpvThreshold) return {};
+		if (zeta > 0 && wPrior / (tPrior + tpvBias) < tpvThreshold) return {};
 		VectorXf v = tv * (1 - m) + out.col(wv) * m;
 		if (normalize) v /= v.norm() + 1e-3f;
 		vec += v;
@@ -972,7 +972,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		float tPrior = getTimePrior(cf);
 		VectorXf tv = makeTimedVector(wv, cf);
 		float wPrior = getWordProbByTime(wv, tv, tPrior);
-		if (wPrior / (tPrior + tpvBias) < tpvThreshold) return {};
+		if (zeta > 0 && wPrior / (tPrior + tpvBias) < tpvThreshold) return {};
 		VectorXf v = tv * (1 - m) + out.col(wv) * m;
 		if (normalize) v /= v.norm() + 1e-3f;
 		vec -= v;
@@ -992,7 +992,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		}
 		VectorXf tv = makeTimedVector(v, coef);
 		float wPrior = getWordProbByTime(v, tv, tPrior);
-		if (wPrior / (tPrior + tpvBias) < tpvThreshold)
+		if (zeta > 0 && wPrior / (tPrior + tpvBias) < tpvThreshold)
 		{
 			sim[v] = make_pair(-INFINITY, wPrior / tPrior);
 			continue;
@@ -1072,8 +1072,8 @@ vector<pair<string, float>> ChronoGramModel::calcShift(size_t minCnt, float time
 		if (frequencies[v] < minCnt) continue;
 		VectorXf v1 = makeTimedVector(v, coef1);
 		VectorXf v2 = makeTimedVector(v, coef2);
-		if (getWordProbByTime(v, v1, tPrior1) / (tPrior1 + tpvBias) < tpvThreshold) continue;
-		if (getWordProbByTime(v, v2, tPrior2) / (tPrior2 + tpvBias) < tpvThreshold) continue;
+		if (zeta > 0 && getWordProbByTime(v, v1, tPrior1) / (tPrior1 + tpvBias) < tpvThreshold) continue;
+		if (zeta > 0 && getWordProbByTime(v, v2, tPrior2) / (tPrior2 + tpvBias) < tpvThreshold) continue;
 		float d;
 		if (m >= 0)
 		{
@@ -1103,7 +1103,7 @@ float ChronoGramModel::sumSimilarity(const string & src, const vector<string>& t
 	float tPrior = getTimePrior(coef);
 	VectorXf tv = makeTimedVector(wv, coef);
 	float wPrior = getWordProbByTime(wv, tv, tPrior);
-	if (wPrior / (tPrior + tpvBias) < tpvThreshold) return -INFINITY;
+	if (zeta > 0 && wPrior / (tPrior + tpvBias) < tpvThreshold) return -INFINITY;
 	VectorXf vec = (tv * (1 - m) + out.col(wv) * m).normalized();
 
 	vector<size_t> targetWv;
@@ -1119,7 +1119,7 @@ float ChronoGramModel::sumSimilarity(const string & src, const vector<string>& t
 	{
 		VectorXf tv = makeTimedVector(v, coef);
 		float wPrior = getWordProbByTime(v, tv, tPrior);
-		if (wPrior / (tPrior + tpvBias) < tpvThreshold) continue;
+		if (zeta > 0 && wPrior / (tPrior + tpvBias) < tpvThreshold) continue;
 		sum += (tv * (1 - m) + out.col(v) * m).normalized().dot(vec);
 	}
 

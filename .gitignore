@@ -295,3 +295,4 @@ __pycache__/
 /chronogram.egg-info
 /dist
 /build
+/build_windows.bat
