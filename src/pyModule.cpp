@@ -4,6 +4,7 @@
 
 #include "ChronoGramModel.h"
 #include "DataReader.h"
+#include "ThreadPool.h"
 #include "PyUtils.h"
 #include "pyDocs.h"
 
@@ -53,7 +54,7 @@ struct CGMObject
 		size_t NS = 5, TNS = 5;
 		float eta = 1, zeta = 0.1f, lambda = 0.1f;
 		size_t seed = std::random_device{}();
-		static const char* kwlist[] = { "m", "l", "subsampling", "word_ns", "time_ns", "eta", "zeta", "lambda", "seed", nullptr };
+		static const char* kwlist[] = { "m", "l", "subsampling", "word_ns", "time_ns", "eta", "zeta", "lambda_v", "seed", nullptr };
 		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|nnfnnfffn", (char**)kwlist,
 			&M, &L, &subsampling, &NS, &TNS, &eta, &zeta, &lambda, &seed)) return -1;
 		try
@@ -194,6 +195,7 @@ static PyObject* CGM_mostSimilarStatic(CGMObject* self, PyObject* args, PyObject
 static PyObject* CGM_similarityStatic(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_getEmbeddingStatic(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_evaluator(CGMObject* self, PyObject* args, PyObject *kwargs);
+static PyObject* CGM_estimateTime(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_pTime(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_pTimeWord(CGMObject* self, PyObject* args, PyObject *kwargs);
 
@@ -216,6 +218,7 @@ static PyMethodDef CGM_methods[] =
 	{ "p_time", (PyCFunction)CGM_pTime, METH_VARARGS | METH_KEYWORDS, CGM_p_time__doc__ },
 	{ "p_time_word", (PyCFunction)CGM_pTimeWord, METH_VARARGS | METH_KEYWORDS, CGM_p_time_word__doc__ },
 	{ "evaluator", (PyCFunction)CGM_evaluator, METH_VARARGS | METH_KEYWORDS, CGM_evaluator__doc__ },
+	{ "estimate_time", (PyCFunction)CGM_estimateTime, METH_VARARGS | METH_KEYWORDS, CGM_estimate_time__doc__ },
 	{ nullptr }
 };
 
@@ -536,6 +539,7 @@ function<ChronoGramModel::ResultReader()> makeCGMReader(PyObject* reader)
 				auto* item = PyIter_Next(r);
 				if (item)
 				{
+					py::AutoReleaser ar(item);
 					if (PyTuple_Size(item) != 2)
 					{
 						auto repr = PyObject_Repr(item);
@@ -592,7 +596,7 @@ PyObject * CGM_initialize(CGMObject * self, PyObject * args, PyObject * kwargs)
 {
 	PyObject* reader = nullptr;
 	size_t workers = 0, windowLen = 4, batchSents = 1000, report = 10000;
-	float startLR = 0.025, endLR = 0.00025, epochs = 1;
+	float startLR = 0.025, endLR = 0.000025, epochs = 1;
 	static const char* kwlist[] = { "reader", "workers", "window_len", "start_lr", "end_lr", "batch_size", "epochs", "report", nullptr };
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnffnfn", (char**)kwlist,
 		&reader, &workers, &windowLen, &startLR, &endLR, &batchSents, &epochs, &report)) return nullptr;
@@ -618,7 +622,7 @@ PyObject * CGM_train(CGMObject * self, PyObject * args, PyObject * kwargs)
 {
 	PyObject* reader = nullptr;
 	size_t workers = 0, windowLen = 4, batchSents = 1000, report = 10000;
-	float startLR = 0.025, endLR = 0.00025, epochs = 1;
+	float startLR = 0.025, endLR = 0.000025, epochs = 1;
 	static const char* kwlist[] = { "reader", "workers", "window_len", "start_lr", "end_lr", "batch_size", "epochs", "report", nullptr };
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnffnfn", (char**)kwlist, 
 		&reader, &workers, &windowLen, &startLR, &endLR, &batchSents, &epochs, &report)) return nullptr;
@@ -684,7 +688,7 @@ PyObject * CGM_initializeGN(CGMObject * self, PyObject * args, PyObject * kwargs
 {
 	const char* ngram;
 	size_t workers = 0, maxItems = -1, batchSents = 1000, report = 10000;
-	float startLR = 0.025, endLR = 0.00025, epochs = 1;
+	float startLR = 0.025, endLR = 0.000025, epochs = 1;
 	static const char* kwlist[] = { "ngram_file", "max_items", "workers", "start_lr", "end_lr", "batch_size", "epochs", "report", nullptr };
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|nnffnfn", (char**)kwlist,
 		&ngram, &maxItems, &workers, &startLR, &endLR, &batchSents, &epochs, &report)) return nullptr;
@@ -710,7 +714,7 @@ PyObject * CGM_trainGN(CGMObject * self, PyObject * args, PyObject * kwargs)
 {
 	const char* ngram;
 	size_t workers = 0, maxItems = -1, batchSents = 1000, report = 10000;
-	float startLR = 0.025, endLR = 0.00025, epochs = 1;
+	float startLR = 0.025, endLR = 0.000025, epochs = 1;
 	static const char* kwlist[] = { "ngram_file", "max_items", "workers", "start_lr", "end_lr", "batch_size", "epochs", "report", nullptr };
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|nnffnfn", (char**)kwlist,
 		&ngram, &maxItems, &workers, &startLR, &endLR, &batchSents, &epochs, &report)) return nullptr;
@@ -738,7 +742,7 @@ PyObject * CGM_mostSimilar(CGMObject * self, PyObject * args, PyObject * kwargs)
 	float time = -INFINITY, m = 0;
 	size_t topN = 10, normalize = 0;
 	static const char* kwlist[] = { "positives", "negatives", "time", "m", "top_n", "normalize", nullptr };
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Offnn", (char**)kwlist,
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Offnp", (char**)kwlist,
 		&positives, &negatives, &time, &m, &topN, &normalize)) return nullptr;
 	
 	const auto& parseWord = [](PyObject* obj)
@@ -847,7 +851,7 @@ PyObject * CGM_mostSimilarStatic(CGMObject * self, PyObject * args, PyObject * k
 	PyObject *positives, *negatives = nullptr;
 	size_t topN = 10;
 	static const char* kwlist[] = { "positives", "negatives", "top_n", nullptr };
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Ofn", (char**)kwlist,
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|On", (char**)kwlist,
 		&positives, &negatives, &topN)) return nullptr;
 
 	const auto& parseWords = [](PyObject* obj)
@@ -961,6 +965,80 @@ PyObject * CGM_evaluator(CGMObject * self, PyObject * args, PyObject * kwargs)
 			return v;
 		}, timePriorWeight) };
 		return PyObject_CallObject((PyObject*)&CGE_type, Py_BuildValue(timePrior ? "(NnN)" : "(Nns)", self, e, timePrior));
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
+}
+
+PyObject * CGM_estimateTime(CGMObject * self, PyObject * args, PyObject * kwargs)
+{
+	try
+	{
+		PyObject *words, *timePrior = nullptr;
+		size_t windowLen = 4, nsQ = 16, workers = 0;
+		float timePriorWeight = 0, min_t = NAN, max_t = NAN, step_t = 1;
+		static const char* kwlist[] = { "words", "window_len", "ns_q", "time_prior_fun", "time_prior_weight",
+			"min_t", "max_t", "step_t", "workers", nullptr };
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnOffffn", (char**)kwlist,
+			&words, &windowLen, &nsQ, &timePrior, &timePriorWeight, 
+			&min_t, &max_t, &step_t, &workers)) return nullptr;
+
+		if (!self->inst) throw runtime_error{ "inst is null" };
+		auto* wordIter = PyObject_GetIter(words);
+		if (!wordIter) throw runtime_error{ "'words' must be list of str" };
+		auto wordsVector = py::makeIterToVector(wordIter);
+		Py_XDECREF(wordIter);
+		auto ev = self->inst->evaluateSent(wordsVector, windowLen, nsQ, [timePrior](float t)
+		{
+			if (!timePrior) return 0.f;
+			auto* ret = PyObject_CallObject(timePrior, Py_BuildValue("(f)", t));
+			if (!ret) throw bad_exception{};
+			py::AutoReleaser ar{ ret };
+			float v = PyFloat_AsDouble(ret);
+			if (v == -1 && PyErr_Occurred()) throw bad_exception{};
+			return v;
+		}, timePriorWeight);
+
+		if (isnan(min_t)) min_t = self->inst->getMinPoint();
+		if (isnan(max_t)) max_t = self->inst->getMaxPoint();
+
+		if (!workers) workers = thread::hardware_concurrency();
+		auto maxV = make_pair(-INFINITY, min_t);
+		if (workers > 1)
+		{
+			ThreadPool pool{ workers };
+			vector<future<pair<float, float>>> futures;
+			for (float t = min_t; t < max_t; t += step_t)
+			{
+				futures.emplace_back(pool.enqueue([&](size_t, float t)
+				{
+					float ll = ev(self->inst->normalizedTimePoint(t));
+					return make_pair(ll, t);
+				}, t));
+			}
+
+			for (auto& f : futures)
+			{
+				auto p = f.get();
+				if (p >= maxV) maxV = p;
+			}
+		}
+		else
+		{
+			for (float t = min_t; t < max_t; t += step_t)
+			{
+				auto p = make_pair(ev(self->inst->normalizedTimePoint(t)), t);
+				if (p >= maxV) maxV = p;
+			}
+		}
+		return Py_BuildValue("(ff)", maxV.second, maxV.first);
 	}
 	catch (const bad_exception&)
 	{

@@ -1,6 +1,11 @@
 Chrono-gram
 -----------
 
-Chrono-gram is a diachronic word embedding model based on SGNS(word2vec Skip-gram with Negative Sampling).
+Chrono-gram is a diachronic word embedding model based on SGNS(word2vec Skip-gram with Negative Sampling) with Chebyshev approximation.
 
 
+Demo
+--------
+Text Dating & Finding similar words using Chrono-gram
+
+https://lab.bab2min.pe.kr/chronogram

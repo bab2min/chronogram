@@ -9,11 +9,6 @@
 using namespace std;
 using namespace Eigen;
 
-template void ChronoGramModel::train<false>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);
-template void ChronoGramModel::train<true>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);
-template void ChronoGramModel::trainFromGNgram<false>(const std::function<GNgramResultReader()>&, uint64_t, size_t, float, float, size_t, float, size_t);
-template void ChronoGramModel::trainFromGNgram<true>(const std::function<GNgramResultReader()>&, uint64_t, size_t, float, float, size_t, float, size_t);
-
 #define DEBUG_PRINT(out, x) (out << #x << ": " << x << endl)
 
 void ChronoGramModel::buildModel()
@@ -276,7 +271,7 @@ size_t ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float t
 	size_t llCnt = 0;
 
 	ld.updateOutIdx.clear();
-	ld.updateOutMat = MatrixXf::Zero(M, negativeSampleSize * (windowLen + 1) * 2);
+	ld.updateOutMat = MatrixXf::Zero(M, (negativeSampleSize + 1) * windowLen * 2);
 	MatrixXf updateIn = MatrixXf::Zero(M, 1);
 	MatrixXf updateInBlock = MatrixXf::Zero(M, L);
 	for (size_t i = 0; i < N; ++i)
@@ -1147,31 +1142,39 @@ ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>&
 {
 	const size_t V = vocabs.size();
 	vector<uint32_t> wordIds;
-	unordered_set<uint32_t> uniqs;
 	unordered_map<uint32_t, LLEvaluater::MixedVectorCoef> coefs;
 	transform(words.begin(), words.end(), back_inserter(wordIds), [&](auto w) { return vocabs.get(w); });
-	uniqs.insert(wordIds.begin(), wordIds.end());
 	size_t n = 0;
-	for (auto i : wordIds)
+	for (size_t i = 0; i < wordIds.size(); ++i)
 	{
-		if (i == (uint32_t)-1) continue;
-		if (coefs.count(i)) continue;
-		coefs[i].n = n;
-		if (nsQ) coefs[i].dataVec.resize((V + nsQ - 1) / nsQ * L);
-		for (size_t v = 0; v < V; ++v)
+		auto wId = wordIds[i];
+		if (wId == WordDictionary<uint32_t>::npos) continue;
+		if (coefs.count(wId) == 0)
 		{
-			if (uniqs.count(v) == 0 && (!nsQ || v % nsQ != n)) continue;
-			VectorXf c = out.col(v).transpose() * in.block(0, i * L, M, L);
-			if (nsQ && v % nsQ == n)
+			coefs[wId].n = n;
+			if (nsQ)
 			{
-				copy(c.data(), c.data() + L, &coefs[i].dataVec[v / nsQ * L]);
-			}
-			else
-			{
-				coefs[i].dataMap[v] = { c.data(), c.data() + L };
+				coefs[wId].dataVec.resize((V + nsQ - 1) / nsQ * L);
+				for (size_t v = n; v < V; v += nsQ)
+				{
+					VectorXf c = out.col(v).transpose() * in.block(0, wId * L, M, L);
+					copy(c.data(), c.data() + L, &coefs[wId].dataVec[v / nsQ * L]);
+				}
+				n = (n + 1) % nsQ;
 			}
 		}
-		if (nsQ) n = (n + 1) % nsQ;
+		size_t jBegin = 0, jEnd = wordIds.size() - 1;
+		if (i > windowLen) jBegin = i - windowLen;
+		if (i + windowLen < wordIds.size()) jEnd = i + windowLen;
+		for (size_t j = jBegin; j <= jEnd; ++j)
+		{
+			if (i == j) continue;
+			auto v = wordIds[j];
+			if (v == WordDictionary<uint32_t>::npos) continue;
+			if (coefs[wId].dataMap.count(v)) continue;
+			VectorXf c = out.col(v).transpose() * in.block(0, wId * L, M, L);
+			coefs[wId].dataMap[v] = { c.data(), c.data() + L };
+		}
 	}
 
 	return LLEvaluater(*this, windowLen, nsQ, move(wordIds), move(coefs), timePrior, timePriorWeight);
@@ -1418,16 +1421,16 @@ size_t ChronoGramModel::getWordCount(const std::string & word) const
 	return frequencies[wv];
 }
 
-float ChronoGramModel::LLEvaluater::operator()(float timePoint) const
+float ChronoGramModel::LLEvaluater::operator()(float normalizedTimePoint) const
 {
 	const size_t N = wordIds.size(), V = tgm.unigramDist.size();
-	auto tCoef = makeCoef(tgm.L, timePoint);
+	auto tCoef = makeCoef(tgm.L, normalizedTimePoint);
 	auto defaultPrior = [&](float)->float
 	{
 		return log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-5f);
 	};
 	float pa = max(tgm.getTimePrior(tCoef), 1e-5f);
-	float ll = (timePrior && timePriorWeight ? timePrior : defaultPrior)(tgm.unnormalizedTimePoint(timePoint)) * timePriorWeight;
+	float ll = (timePrior && timePriorWeight ? timePrior : defaultPrior)(tgm.unnormalizedTimePoint(normalizedTimePoint)) * timePriorWeight;
 	unordered_map<uint32_t, uint32_t> count;
 
 	for (size_t i = 0; i < N; ++i)
@@ -1471,10 +1474,10 @@ float ChronoGramModel::LLEvaluater::operator()(float timePoint) const
 	return ll;
 }
 
-tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
+tuple<float, float> ChronoGramModel::LLEvaluater::fg(float normalizedTimePoint) const
 {
 	const size_t N = wordIds.size(), V = tgm.unigramDist.size();
-	auto tCoef = makeCoef(tgm.L, timePoint), tDCoef = makeDCoef(tgm.L, timePoint);
+	auto tCoef = makeCoef(tgm.L, normalizedTimePoint), tDCoef = makeDCoef(tgm.L, normalizedTimePoint);
 	auto defaultPrior = [&](float)->float
 	{
 		return log(1 - exp(-pow(tgm.timePrior.dot(tCoef), 2) / 2) + 1e-5f);
@@ -1482,7 +1485,7 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
 	float pa = max(tgm.getTimePrior(tCoef), 1e-5f);
 	float dot = tgm.timePrior.dot(tCoef);
 	float ddot = tgm.timePrior.block(1, 0, tgm.L - 1, 1).dot(tDCoef);
-	float ll = (timePrior ? timePrior : defaultPrior)(tgm.unnormalizedTimePoint(timePoint)) * timePriorWeight,
+	float ll = (timePrior ? timePrior : defaultPrior)(tgm.unnormalizedTimePoint(normalizedTimePoint)) * timePriorWeight,
 		dll = (dot * ddot / (exp(pow(dot, 2)) - 1 + 1e-5f) + dot * ddot) * timePriorWeight;
 	unordered_map<uint32_t, uint32_t> count;
 
@@ -1534,3 +1537,8 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float timePoint) const
 	}
 	return make_tuple(ll, dll);
 }
+
+template void ChronoGramModel::train<false>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);
+template void ChronoGramModel::train<true>(const std::function<ResultReader()>&, size_t, size_t, float, float, size_t, float, size_t);
+template void ChronoGramModel::trainFromGNgram<false>(const std::function<GNgramResultReader()>&, uint64_t, size_t, float, float, size_t, float, size_t);
+template void ChronoGramModel::trainFromGNgram<true>(const std::function<GNgramResultReader()>&, uint64_t, size_t, float, float, size_t, float, size_t);

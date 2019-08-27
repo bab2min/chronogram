@@ -45,6 +45,10 @@
     <ClCompile Include="src\ChronoGramModel.cpp" />
     <ClCompile Include="src\pyModule.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="chronogram\__init__.py" />
+    <None Include="setup.py" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
     <ProjectGuid>{767ABBDE-AA63-45BB-9F52-87512BBE5310}</ProjectGuid>

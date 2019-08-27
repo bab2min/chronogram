@@ -1,8 +1,5 @@
-"""
-Python package `chronogram` provides types and functions for Chrono-gram Word Embedding Model.
-It is written in C++ for speed and provides Python extension.
-
-"""
+"""Python package `chronogram` provides types and functions for Chrono-gram Word Embedding Model.
+It is written in C++ for speed and provides Python extension."""
 
 isa = ''
 """

@@ -87,8 +87,8 @@ public:
 		{}
 
 	public:
-		float operator()(float timePoint) const;
-		std::tuple<float, float> fg(float timePoint) const;
+		float operator()(float normalizedTimePoint) const;
+		std::tuple<float, float> fg(float normalizedTimePoint) const;
 	};
 
 	struct EvalResult

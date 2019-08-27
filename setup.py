@@ -1,6 +1,6 @@
 from setuptools import setup, Extension
 from codecs import open
-import os, os.path, struct
+import os, os.path, struct, platform
 from setuptools.command.install import install
 
 here = os.path.abspath(os.path.dirname(__file__))
@@ -12,12 +12,14 @@ sources = []
 for f in os.listdir(os.path.join(here, 'src')):
     if f.endswith('.cpp') and not f.endswith('main.cpp'): sources.append('src/' + f)
 
-if os.name == 'nt': 
+if platform.system() == 'Windows': 
     cargs = ['/O2', '/MT', '/Gy']
     arch_levels = {'':'', 'sse2':'/arch:SSE2', 'avx':'/arch:AVX', 'avx2':'/arch:AVX2'}
-else: 
+elif platform.system() == 'Darwin': 
+    cargs = ['-std=c++1y', '-O3', '-fpermissive', '-stdlib=libc++']
+    arch_levels = {'':'-march=native'}
+else:
     cargs = ['-std=c++1y', '-O3', '-fpermissive']
-    #arch_levels = {'':'', 'sse2':'-msse2', 'avx':'-mavx', 'avx2':'-mavx2'}
     arch_levels = {'':'-march=native'}
 
 if struct.calcsize('P') < 8: arch_levels = {k:v for k, v in arch_levels.items() if k in ('', 'sse2')}
@@ -37,7 +39,7 @@ for arch, aopt in arch_levels.items():
 setup(
     name='chronogram',
 
-    version='0.1.0',
+    version='0.1.3',
 
     description='Chrono-gram, the diachronic word embedding model based on Word2vec Skip-gram with Chebyshev approximation',
     long_description=long_description,
