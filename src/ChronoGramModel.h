@@ -108,6 +108,13 @@ private:
 		std::mt19937_64 rg;
 		Eigen::MatrixXf updateOutMat;
 		std::unordered_map<uint32_t, uint32_t> updateOutIdx;
+		std::unordered_set<uint32_t> updateOutIdxHash;
+	};
+
+	struct TrainResult
+	{
+		size_t numWords = 0, numPairs = 0;
+		float ll = 0, llUg = 0;
 	};
 
 	std::vector<uint64_t> frequencies; // (V)
@@ -142,8 +149,6 @@ private:
 
 	Timer timer;
 
-	std::mutex mtx;
-
 	static Eigen::VectorXf makeCoef(size_t L, float z);
 	static Eigen::VectorXf makeDCoef(size_t L, float z);
 	Eigen::VectorXf makeTimedVector(size_t wv, const Eigen::VectorXf& coef) const;
@@ -168,12 +173,13 @@ private:
 	void buildTable();
 
 	template<bool _Initialization = false, bool _GNgramMode = false>
-	size_t trainVectors(const uint32_t* ws, size_t N, float timePoint,
+	TrainResult trainVectors(const uint32_t* ws, size_t N, float timePoint,
 		size_t windowLen, float lr);
 
 	template<bool _Initialization = false, bool _GNgramMode = false>
-	size_t trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
-		size_t windowLen, float lr, ThreadLocalData& ld);
+	TrainResult trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
+		size_t windowLen, float lr, ThreadLocalData& ld,
+		std::mutex* mtxIn, std::mutex* mtxOut, size_t numWorkers = 1);
 	void trainTimePrior(const float* ts, size_t N, float lr, size_t report);
 	void normalizeWordDist(bool updateVocab = true);
 

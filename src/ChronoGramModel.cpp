@@ -69,15 +69,15 @@ template<bool _Initialization>
 float ChronoGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative, const VectorXf& lWeight)
 {
 	auto outcol = out.col(y);
-	VectorXf inSum = _Initialization ? in.col(x * L) : makeTimedVector(x, lWeight);
+	auto inSum = _Initialization ? in.col(x * L) : makeTimedVector(x, lWeight);
 	float f = inSum.dot(outcol);
 	float pr = logsigmoid(f * (negative ? -1 : 1)) * (1 - zeta);
 
 	float d = ((negative ? 0 : 1) - sigmoid(f)) * (1 - zeta);
 	float g = lr * d;
 
-	VectorXf in_grad = g * outcol;
-	VectorXf out_grad = g * inSum;
+	auto in_grad = g * outcol;
+	auto out_grad = g * inSum;
 	outcol += out_grad;
 
 	if (_Initialization || fixedWords.count(x))
@@ -96,7 +96,7 @@ float ChronoGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool nega
 	Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad, Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad)
 {
 	auto outcol = out.col(y);
-	VectorXf inSum = _Initialization ? in.col(x * L) : makeTimedVector(x, lWeight);
+	auto inSum = _Initialization ? in.col(x * L) : makeTimedVector(x, lWeight);
 	float f = inSum.dot(outcol);
 	float pr = logsigmoid(f * (negative ? -1 : 1)) * (1 - zeta);
 	float d = ((negative ? 0 : 1) - sigmoid(f)) * (1 - zeta);
@@ -196,9 +196,11 @@ float ChronoGramModel::updateTimePrior(float lr, const VectorXf & lWeight, const
 }
 
 template<bool _Initialization, bool _GNgramMode>
-size_t ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
+ChronoGramModel::TrainResult ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePoint,
 	size_t windowLen, float lr)
 {
+	TrainResult tr;
+	tr.numWords = N;
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
 	for (size_t i = 0; i < N; ++i)
 	{
@@ -210,8 +212,6 @@ size_t ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePo
 		if (i > windowLen) jBegin = i - windowLen;
 		if (i + windowLen < N) jEnd = i + windowLen;
 
-		float llSum = 0, llUg = 0;
-		size_t llCnt = 0;
 		// update in, out vector
 		if (zeta < 1)
 		{
@@ -228,13 +228,13 @@ size_t ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePo
 					ll += inplaceUpdate<_Initialization>(x, ns, lr, true, coef);
 					assert(isfinite(ll));
 				}
-				llCnt++;
-				llSum += ll;
+				tr.numPairs++;
+				tr.ll += ll;
 			}
 		}
 		else
 		{
-			llCnt += jEnd - jBegin - 1;
+			tr.numPairs += jEnd - jBegin - 1;
 		}
 
 		if (!_Initialization && zeta > 0 && !fixedWords.count(x))
@@ -249,28 +249,23 @@ size_t ChronoGramModel::trainVectors(const uint32_t * ws, size_t N, float timePo
 			{
 				randSampleWeightP.emplace_back(&randSampleWeight[i]);
 			}
-			llUg += inplaceTimeUpdate(x, lr, coef, randSampleWeightP);
-		}
-
-		if (llCnt)
-		{
-			totalLLCnt += llCnt;
-			totalLL += (llSum - llCnt * totalLL) / totalLLCnt;
-			ugLL += (llUg - llCnt * ugLL) / totalLLCnt;
+			tr.llUg += inplaceTimeUpdate(x, lr, coef, randSampleWeightP);
 		}
 	}
-	return N;
+
+	return tr;
 }
 
 template<bool _Initialization, bool _GNgramMode>
-size_t ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timePoint,
-	size_t windowLen, float lr, ThreadLocalData& ld)
+ChronoGramModel::TrainResult ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float timePoint,
+	size_t windowLen, float lr, ThreadLocalData& ld, std::mutex* mtxIn, std::mutex* mtxOut, size_t numWorkers)
 {
 	VectorXf coef = makeCoef(L, normalizedTimePoint(timePoint));
-	float llSum = 0, llUg = 0;
-	size_t llCnt = 0;
+	TrainResult tr;
+	tr.numWords = N;
 
 	ld.updateOutIdx.clear();
+	ld.updateOutIdxHash.clear();
 	ld.updateOutMat = MatrixXf::Zero(M, (negativeSampleSize + 1) * windowLen * 2);
 	MatrixXf updateIn = MatrixXf::Zero(M, 1);
 	MatrixXf updateInBlock = MatrixXf::Zero(M, L);
@@ -293,7 +288,10 @@ size_t ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float t
 				if (i == j) continue;
 				if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
 				if (ld.updateOutIdx.find(ws[j]) == ld.updateOutIdx.end())
+				{
 					ld.updateOutIdx.emplace(ws[j], ld.updateOutIdx.size());
+					ld.updateOutIdxHash.emplace(ws[j] % numWorkers);
+				}
 
 				float ll = getUpdateGradient<_Initialization>(x, ws[j], lr, false, coef,
 					updateIn.col(0),
@@ -311,13 +309,13 @@ size_t ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float t
 						ld.updateOutMat.col(ld.updateOutIdx[ns]));
 					assert(isfinite(ll));
 				}
-				llCnt++;
-				llSum += ll;
+				tr.numPairs++;
+				tr.ll += ll;
 			}
 		}
 		else
 		{
-			llCnt += jEnd - jBegin - 1;
+			tr.numPairs += jEnd - jBegin - 1;
 		}
 		
 		updateInBlock.setZero();
@@ -333,14 +331,14 @@ size_t ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float t
 			{
 				randSampleWeightP.emplace_back(&randSampleWeight[i]);
 			}
-			llUg += getTimeUpdateGradient(x, lr, coef, 
+			tr.llUg += getTimeUpdateGradient(x, lr, coef, 
 				randSampleWeightP,
 				updateInBlock.block(0, 0, M, L));
 		}
 
 		{
-			lock_guard<mutex> lock(mtx);
-			// deferred update
+			lock_guard<mutex> lock(mtxIn[x % numWorkers]);
+			// deferred update of in-vector
 			if (_Initialization || fixedWords.count(x))
 			{
 				in.col(x * L) += updateIn.col(0);
@@ -348,31 +346,25 @@ size_t ChronoGramModel::trainVectorsMulti(const uint32_t * ws, size_t N, float t
 			else
 			{
 				in.block(0, x * L, M, L) += updateIn * VectorXf{ coef.array() * vEta.array() }.transpose();
+				if (zeta > 0) in.block(0, x * L, M, L) += updateInBlock;
 			}
+		}
 
-			if (!_Initialization && zeta > 0 && !fixedWords.count(x))
-			{
-				in.block(0, x * L, M, L) += updateInBlock;
-			}
-
+		// deferred update of out-vector
+		for(size_t hash : ld.updateOutIdxHash)
+		{
+			lock_guard<mutex> lock(mtxOut[x % numWorkers]);
 			for (auto& p : ld.updateOutIdx)
 			{
+				if (p.first % numWorkers != hash) continue;
 				out.col(p.first) += ld.updateOutMat.col(p.second);
 			}
-
 		}
 		ld.updateOutMat.setZero();
 		ld.updateOutIdx.clear();
 	}
 
-	lock_guard<mutex> lock(mtx);
-	if (llCnt)
-	{
-		totalLLCnt += llCnt;
-		totalLL += (llSum - llCnt * totalLL) / totalLLCnt;
-		ugLL += (llUg - llCnt * ugLL) / totalLLCnt;
-	}
-	return N;
+	return tr;
 }
 
 void ChronoGramModel::trainTimePrior(const float * ts, size_t N, float lr, size_t report)
@@ -616,6 +608,7 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
 	ThreadPool workers{ numWorkers };
 	vector<ThreadLocalData> ld;
+	unique_ptr<mutex[]> mtxIn, mtxOut;
 	if (numWorkers > 1)
 	{
 		ld.resize(numWorkers);
@@ -623,6 +616,8 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 		{
 			l.rg = mt19937_64{ globalData.rg() };
 		}
+		mtxIn = make_unique<mutex[]>(numWorkers);
+		mtxOut = make_unique<mutex[]>(numWorkers);
 	}
 	vector<pair<vector<uint32_t>, float>> collections;
 	vector<float> timePoints;
@@ -652,22 +647,25 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 		constexpr float timeLR = 0.1f;
 		if (numWorkers > 1)
 		{
-			vector<future<size_t>> futures;
+			vector<future<TrainResult>> futures;
 			futures.reserve(collections.size());
 			for (auto& d : collections)
 			{
 				futures.emplace_back(workers.enqueue([&](size_t threadId)
 				{
 					return trainVectorsMulti<_Initialization>(d.first.data(), d.first.size(), d.second,
-						windowLen, lr, ld[threadId]);
+						windowLen, lr, ld[threadId], mtxIn.get(), mtxOut.get(), numWorkers);
 				}));
 			}
 			if(!_Initialization && zeta > 0) trainTimePrior(timePoints.data(), timePoints.size(), lr * timeLR, report);
 			for (auto& f : futures)
 			{
-				size_t procd = f.get();
-				procWords += procd;
-				if (report && (procWords - procd) / report < procWords / report)
+				TrainResult tr = f.get();
+				totalLLCnt += tr.numPairs;
+				totalLL += (tr.ll - tr.numPairs * totalLL) / totalLLCnt;
+				ugLL += (tr.llUg - tr.numPairs * ugLL) / totalLLCnt;
+				procWords += tr.numWords;
+				if (report && (procWords - tr.numWords) / report < procWords / report)
 				{
 					float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
 					fprintf(stderr, "%.2f%% %.4f %.4f %.4f %.4f %.2f kwords/sec\n",
@@ -686,9 +684,12 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 		{
 			for (auto& d : collections)
 			{
-				trainVectors<_Initialization>(d.first.data(), d.first.size(), d.second,
+				TrainResult tr = trainVectors<_Initialization>(d.first.data(), d.first.size(), d.second,
 					windowLen, lr);
-				procWords += d.first.size();
+				totalLLCnt += tr.numPairs;
+				totalLL += (tr.ll - tr.numPairs * totalLL) / totalLLCnt;
+				ugLL += (tr.llUg - tr.numPairs * ugLL) / totalLLCnt;
+				procWords += tr.numWords;
 
 				if (report && procWords / report > lastProcWords / report)
 				{
@@ -764,6 +765,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
 	ThreadPool workers{ numWorkers };
 	vector<ThreadLocalData> ld;
+	unique_ptr<mutex[]> mtxIn, mtxOut;
 	if (numWorkers > 1)
 	{
 		ld.resize(numWorkers);
@@ -771,6 +773,8 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 		{
 			l.rg = mt19937_64{ globalData.rg() };
 		}
+		mtxIn = make_unique<mutex[]>(numWorkers);
+		mtxOut = make_unique<mutex[]>(numWorkers);
 	}
 
 	vector<array<uint32_t, 5>> ngrams;
@@ -803,18 +807,24 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 		constexpr float timeLR = 0.1f;
 		if (numWorkers > 1)
 		{
-			vector<future<size_t>> futures;
+			vector<future<TrainResult>> futures;
 			futures.reserve(collections.size());
 			for (auto& d : collections)
 			{
 				futures.emplace_back(workers.enqueue([&](size_t threadId)
 				{
 					return trainVectorsMulti<_Initialization, true>(ngrams[d.first].data(), 5, d.second,
-						4, lr, ld[threadId]);
+						4, lr, ld[threadId], mtxIn.get(), mtxOut.get(), numWorkers);
 				}));
 			}
 			if (!_Initialization && zeta > 0) trainTimePrior(timePoints.data(), timePoints.size(), lr * timeLR, report);
-			for (auto& f : futures) f.get();
+			for (auto& f : futures)
+			{
+				TrainResult tr = f.get();
+				totalLLCnt += tr.numPairs;
+				totalLL += (tr.ll - tr.numPairs * totalLL) / totalLLCnt;
+				ugLL += (tr.llUg - tr.numPairs * ugLL) / totalLLCnt;
+			}
 			if (!_Initialization && zeta > 0)
 			{
 				normalizeWordDist(false);
@@ -824,7 +834,10 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 		{
 			for (auto& d : collections)
 			{
-				trainVectors<_Initialization, true>(ngrams[d.first].data(), 5, d.second, 4, lr);
+				TrainResult tr = trainVectors<_Initialization, true>(ngrams[d.first].data(), 5, d.second, 4, lr);
+				totalLLCnt += tr.numPairs;
+				totalLL += (tr.ll - tr.numPairs * totalLL) / totalLLCnt;
+				ugLL += (tr.llUg - tr.numPairs * ugLL) / totalLLCnt;
 			}
 			if (!_Initialization && zeta > 0)
 			{
