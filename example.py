@@ -15,15 +15,15 @@ class DataReader:
             # sample data is consist of two fields, time and sentence.
             fields = line.split('\t', 1)
             if len(fields) < 2: continue
-            words = fields.split()
-            time = float(fields[1])
+            words = fields[1].split()
+            time = float(fields[0])
             
             # yielding words-time pair
             yield words, time
             
 
 # create model with 300 dimensions and 8 ordered polynomial
-mdl = cg.Chronogram(m=300, l=8)
+mdl = cg.Chronogram(d=300, r=8)
 data_reader = DataReader('sample.txt')
 # build vocabulary before training. 
 # words whose count is less than 10 
@@ -45,16 +45,18 @@ mdl.train(reader=data_reader, workers=0, window_len=4, epochs=10)
 mdl.save('chronogram-sample.mdl')
 
 # we can load the model from file.
-mdl = Chronogram.load('chronogram-sample.mdl')
+mdl = cg.Chronogram.load('chronogram-sample.mdl')
 
-# we can find similar words at 2000 to 'model' at 1980
-print('Similar words of "model" at 1980')
-for word, similarity, p in mdl.most_similar(('model', 1980), time=2000):
+# we can find similar words at 2005 to 'model' at 2010
+print('== Similar words of 2005 to "model" at 2010 ==')
+for word, similarity, p in mdl.most_similar(('model', 2010), time=2005):
     print('%s %f' % (word, similarity))
 
 # we can estimate the time of unknown text.
-sample = "sample sentence written at 1990".split()
+sample = """sample sentence written at 2003
+access law lost record commentari search chill commentari reflect proposit record lost consequ access law examin""".split()
+print('\n== Text Dating ==')
 print(' '.join(sample))
-est_time = mdl.estimate_time(sample, window_len=4, workers=0, min_t=1960, max_t=2010)
-print('Estimated Time: %f' % est_time)
+est_time, ll = mdl.estimate_time(sample, window_len=4, workers=0, min_t=2000, max_t=2010)
+print('Estimated Time: %f (LL: %f)' % (est_time, ll))
 
