@@ -54,7 +54,7 @@ struct CGMObject
 		size_t NS = 5, TNS = 5;
 		float eta = 1, zeta = 0.1f, lambda = 0.1f;
 		size_t seed = std::random_device{}();
-		static const char* kwlist[] = { "m", "l", "subsampling", "word_ns", "time_ns", "eta", "zeta", "lambda_v", "seed", nullptr };
+		static const char* kwlist[] = { "d", "r", "subsampling", "word_ns", "time_ns", "eta", "zeta", "lambda_v", "seed", nullptr };
 		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|nnfnnfffn", (char**)kwlist,
 			&M, &L, &subsampling, &NS, &TNS, &eta, &zeta, &lambda, &seed)) return -1;
 		try
@@ -222,8 +222,8 @@ static PyMethodDef CGM_methods[] =
 	{ nullptr }
 };
 
-DEFINE_GETTER(getM);
-DEFINE_GETTER(getL);
+DEFINE_GETTER(getD);
+DEFINE_GETTER(getR);
 DEFINE_GETTER(getZeta);
 DEFINE_GETTER(getLambda);
 DEFINE_GETTER(getPadding);
@@ -296,8 +296,8 @@ static int CGM_setTPThreshold(CGMObject *self, PyObject *value, void *closure)
 }
 
 static PyGetSetDef CGM_getseters[] = {
-	{ (char*)"m", (getter)CGM_getM, nullptr, (char*)"embedding dimension", NULL },
-	{ (char*)"l", (getter)CGM_getL, nullptr, (char*)"chebyshev approximation order", NULL },
+	{ (char*)"d", (getter)CGM_getD, nullptr, (char*)"embedding dimension", NULL },
+	{ (char*)"r", (getter)CGM_getR, nullptr, (char*)"chebyshev approximation order", NULL },
 	{ (char*)"zeta", (getter)CGM_getZeta, nullptr, (char*)"zeta, mixing factor", NULL },
 	{ (char*)"lambda_v", (getter)CGM_getLambda, nullptr, (char*)"lambda", NULL },
 	{ (char*)"min_time", (getter)CGM_getMinPoint, nullptr, (char*)"time range", NULL },

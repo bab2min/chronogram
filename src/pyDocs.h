@@ -9,7 +9,7 @@
 #endif
 
 DOC_SIGNATURE_EN(CGM___init____doc__,
-	"Chronogram(m=100, l=6, subsampling=0.0001, word_ns=5, time_ns=5, eta=1, zeta=0.1, lambda_v=0.1, seed=None)",
+	"Chronogram(d=100, r=6, subsampling=0.0001, word_ns=5, time_ns=5, eta=1, zeta=0.1, lambda_v=0.1, seed=None)",
 	u8R""()"");
 
 DOC_SIGNATURE_EN(CGM_load__doc__, 

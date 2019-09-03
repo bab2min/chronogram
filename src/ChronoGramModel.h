@@ -64,9 +64,9 @@ public:
 			std::map<uint32_t, std::vector<float>> dataMap;
 			std::vector<float> dataVec;
 
-			const float* get(uint32_t id, size_t nsQ, size_t L) const
+			const float* get(uint32_t id, size_t nsQ, size_t R) const
 			{
-				if(nsQ && id % nsQ == n) return &dataVec[id / nsQ * L];
+				if(nsQ && id % nsQ == n) return &dataVec[id / nsQ * R];
 				auto it = dataMap.find(id);
 				if (it != dataMap.end()) return &it->second[0];
 				return nullptr;
@@ -120,17 +120,17 @@ private:
 	std::vector<uint64_t> frequencies; // (V)
 	std::vector<float> wordScale;
 	std::unordered_set<uint32_t> fixedWords;
-	Eigen::MatrixXf in; // (M, L * V)
-	Eigen::MatrixXf out; // (M, V)
-	size_t M; // dimension of word vector
-	size_t L; // order of Lengendre polynomial
+	Eigen::MatrixXf in; // (D, R * V)
+	Eigen::MatrixXf out; // (D, V)
+	size_t D; // dimension of word vector
+	size_t R; // order of Lengendre polynomial
 	float subsampling;
 	float zBias = 0, zSlope = 1;
 	float zeta = .5f, lambda = .1f;
 
 	float timePadding = 0;
 	float timePriorScale = 1;
-	Eigen::VectorXf timePrior; // (L, 1)
+	Eigen::VectorXf timePrior; // (R, 1)
 	Eigen::VectorXf vEta;
 
 	float tpvThreshold = 0.25f, tpvBias = 0.0625f;
@@ -149,8 +149,8 @@ private:
 
 	Timer timer;
 
-	static Eigen::VectorXf makeCoef(size_t L, float z);
-	static Eigen::VectorXf makeDCoef(size_t L, float z);
+	static Eigen::VectorXf makeCoef(size_t R, float z);
+	static Eigen::VectorXf makeDCoef(size_t R, float z);
 	Eigen::VectorXf makeTimedVector(size_t wv, const Eigen::VectorXf& coef) const;
 
 	template<bool _Initialization = false>
@@ -184,25 +184,25 @@ private:
 	void normalizeWordDist(bool updateVocab = true);
 
 	float getTimePrior(const Eigen::VectorXf& coef) const;
-	float getWordProbByTime(uint32_t w, const Eigen::VectorXf& timedVector, float tPrior) const;
+	float getWordProbByTime(uint32_t w, const Eigen::VectorXf& timedVector, const Eigen::VectorXf& coef, float tPrior) const;
 	float getWordProbByTime(uint32_t w, float timePoint) const;
 public:
-	ChronoGramModel(size_t _M = 100, size_t _L = 6,
+	ChronoGramModel(size_t _D = 100, size_t _R = 6,
 		float _subsampling = 1e-4f, size_t _negativeSampleSize = 5, size_t _timeNegativeSample = 5,
 		float _eta = 1.f, float _zeta = .1f, float _lambda = .1f,
 		size_t seed = std::random_device()())
-		: M(_M), L(_L), subsampling(_subsampling), zeta(_zeta), lambda(_lambda),
-		vEta(Eigen::VectorXf::Constant(_L, _eta)),
+		: D(_D), R(_R), subsampling(_subsampling), zeta(_zeta), lambda(_lambda),
+		vEta(Eigen::VectorXf::Constant(_R, _eta)),
 		negativeSampleSize(_negativeSampleSize), temporalSample(_timeNegativeSample)
 	{
 		globalData.rg = std::mt19937_64{ seed };
 
 		vEta[0] = 1;
-		timePadding = .25f / L;
+		timePadding = .25f / R;
 	}
 
 	ChronoGramModel(ChronoGramModel&& o)
-		: M(o.M), L(o.L), globalData(o.globalData),
+		: D(o.D), R(o.R), globalData(o.globalData),
 		vocabs(std::move(o.vocabs)), frequencies(std::move(o.frequencies)), 
 		unigramTable(std::move(o.unigramTable)), unigramDist(std::move(o.unigramDist)),
 		in(std::move(o.in)), out(std::move(o.out)), zBias(o.zBias), zSlope(o.zSlope),
@@ -215,8 +215,8 @@ public:
 
 	ChronoGramModel& operator=(ChronoGramModel&& o)
 	{
-		M = o.M;
-		L = o.L;
+		D = o.D;
+		R = o.R;
 		globalData = o.globalData;
 		vocabs = std::move(o.vocabs);
 		frequencies = std::move(o.frequencies);
@@ -302,8 +302,8 @@ public:
 	float getWordProbByTime(const std::string& word, float timePoint) const;
 	float getTimePrior(float timePoint) const;
 
-	size_t getL() const { return L; }
-	size_t getM() const { return M; }
+	size_t getR() const { return R; }
+	size_t getD() const { return D; }
 
 	size_t getTotalWords() const;
 	size_t getWordCount(const std::string& word) const;
