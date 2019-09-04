@@ -351,7 +351,7 @@ ChronoGramModel::TrainResult ChronoGramModel::trainVectorsMulti(const uint32_t *
 		// deferred update of out-vector
 		for(size_t hash : ld.updateOutIdxHash)
 		{
-			lock_guard<mutex> lock(mtxOut[x % numWorkers]);
+			lock_guard<mutex> lock(mtxOut[hash]);
 			for (auto& p : ld.updateOutIdx)
 			{
 				if (p.first % numWorkers != hash) continue;
@@ -663,15 +663,15 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 				totalLL += (tr.ll - tr.numPairs * totalLL) / totalLLCnt;
 				ugLL += (tr.llUg - tr.numPairs * ugLL) / totalLLCnt;
 				procWords += tr.numWords;
-				if (report && (procWords - tr.numWords) / report < procWords / report)
-				{
-					float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
-					fprintf(stderr, "%.2f%% %.4f %.4f %.4f %.4f %.2f kwords/sec\n",
-						procWords / (totalWords / 100.f), totalLL + ugLL, totalLL, ugLL,
-						lr, time_per_kword);
-					lastProcWords = procWords;
-					timer.reset();
-				}
+			}
+			if (report && lastProcWords / report < procWords / report)
+			{
+				float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
+				fprintf(stderr, "%.2f%% %.4f %.4f %.4f %.4f %.2f kwords/sec\n",
+					procWords / (totalWords / 100.f), totalLL + ugLL, totalLL, ugLL,
+					lr, time_per_kword);
+				lastProcWords = procWords;
+				timer.reset();
 			}
 			if (!_Initialization)
 			{
@@ -689,7 +689,7 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 				ugLL += (tr.llUg - tr.numPairs * ugLL) / totalLLCnt;
 				procWords += tr.numWords;
 
-				if (report && procWords / report > lastProcWords / report)
+				if (report && lastProcWords / report < procWords / report)
 				{
 					float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
 					fprintf(stderr, "%.2f%% %.4f %.4f %.4f %.4f %.2f kwords/sec\n",
@@ -847,7 +847,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 		ngrams.clear();
 		timePoints.clear();
 
-		if (report && procWords / report > lastProcWords / report)
+		if (report && lastProcWords / report <  procWords / report)
 		{
 			float time_per_kword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
 			fprintf(stderr, "%.2f%% %.4f %.4f %.4f %.4f %.2f kwords/sec\n",

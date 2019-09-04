@@ -219,7 +219,7 @@ int main(int argc, char* argv[])
 		cout << "Loading Model: " << args.load << endl;
 		ifstream ifs{ args.load, ios_base::binary };
 		tgm = ChronoGramModel::loadModel(ifs);
-		cout << "Dimension: " << tgm.getM() << "\tOrder: " << tgm.getL() << endl;
+		cout << "Dimension: " << tgm.getD() << "\tOrder: " << tgm.getR() << endl;
 		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << endl;
 		cout << "Zeta: " << tgm.getZeta() << "\tLambda: " << tgm.getLambda() << endl;
 		cout << "Padding: " << tgm.getPadding() << endl;
