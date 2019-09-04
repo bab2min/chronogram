@@ -95,7 +95,7 @@ void rankAvg(_InputIter srcFirst, _InputIter srcLast, _OutputIter destFirst)
 	size_t len = std::distance(srcFirst, srcLast);
 	std::vector<size_t> idx(len);
 	std::iota(idx.begin(), idx.end(), 0);
-	std::sort(idx.begin(), idx.end(), [&](auto l, auto r)
+	std::sort(idx.begin(), idx.end(), [&](size_t l, size_t r)
 	{
 		return srcFirst[l] < srcFirst[r];
 	});

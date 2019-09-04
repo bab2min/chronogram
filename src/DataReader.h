@@ -1,16 +1,16 @@
 #pragma once
 #include <fstream>
+#include <memory>
 #include "ChronoGramModel.h"
 
 class MultipleReader
 {
 	std::vector<std::string> files;
 	size_t currentId = 0;
-	std::ifstream ifs;
+	std::unique_ptr<std::ifstream> ifs;
 public:
-	MultipleReader(const std::vector<std::string>& _files) : files(_files)
+	MultipleReader(const std::vector<std::string>& _files) : files(_files), ifs(new std::ifstream{_files[0]})
 	{
-		ifs = std::ifstream{ files[currentId] };
 	}
 
 	ChronoGramModel::ReadResult operator()();

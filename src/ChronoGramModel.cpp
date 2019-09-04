@@ -34,7 +34,7 @@ void ChronoGramModel::buildTable()
 {
 	// build Unigram Table for Negative Sampling
 	vector<double> weights;
-	transform(frequencies.begin(), frequencies.end(), back_inserter(weights), [](auto w) { return pow(w, 0.75); });
+	transform(frequencies.begin(), frequencies.end(), back_inserter(weights), [](size_t w) { return pow(w, 0.75); });
 	unigramTable = discrete_distribution<uint32_t>(weights.begin(), weights.end());
 	auto p = unigramTable.probabilities();
 	unigramDist = vector<float>{ p.begin(), p.end() };
@@ -549,7 +549,7 @@ size_t ChronoGramModel::recountVocab(const std::function<ResultReader()>& reader
 		for (size_t n = 0; n < frequencies.size(); ++n) frequencies[n] += counters[i][n];
 	}
 	buildTable();
-	return count_if(frequencies.begin(), frequencies.end(), [](auto e) { return e; });
+	return count_if(frequencies.begin(), frequencies.end(), [](size_t e) { return e; });
 }
 
 
@@ -572,7 +572,7 @@ size_t ChronoGramModel::recountVocab(const std::function<GNgramResultReader()>& 
 	}
 
 	buildTable();
-	return count_if(frequencies.begin(), frequencies.end(), [](auto e) { return e; });
+	return count_if(frequencies.begin(), frequencies.end(), [](size_t e) { return e; });
 }
 
 
@@ -614,8 +614,8 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 		{
 			l.rg = mt19937_64{ globalData.rg() };
 		}
-		mtxIn = make_unique<mutex[]>(numWorkers);
-		mtxOut = make_unique<mutex[]>(numWorkers);
+		mtxIn = unique_ptr<mutex[]>(new mutex[numWorkers]);
+		mtxOut = unique_ptr<mutex[]>(new mutex[numWorkers]);
 	}
 	vector<pair<vector<uint32_t>, float>> collections;
 	vector<float> timePoints;
@@ -771,8 +771,8 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 		{
 			l.rg = mt19937_64{ globalData.rg() };
 		}
-		mtxIn = make_unique<mutex[]>(numWorkers);
-		mtxOut = make_unique<mutex[]>(numWorkers);
+		mtxIn = unique_ptr<mutex[]>(new mutex[numWorkers]);
+		mtxOut = unique_ptr<mutex[]>(new mutex[numWorkers]);
 	}
 
 	vector<array<uint32_t, 5>> ngrams;
@@ -798,7 +798,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 		if (!_Initialization)
 		{
 			timePoints.resize(collections.size() / 8);
-			transform(collections.begin(), collections.begin() + timePoints.size(), timePoints.begin(), [](auto p) { return p.second; });
+			transform(collections.begin(), collections.begin() + timePoints.size(), timePoints.begin(), [](const pair<uint32_t, float>& p) { return p.second; });
 		}
 
 		float lr = start_lr + (end_lr - start_lr) * (procWords / (float)totalWords);
@@ -1092,7 +1092,7 @@ vector<pair<string, float>> ChronoGramModel::calcShift(size_t minCnt, float time
 		ret.emplace_back(vocabs.getStr(v), d);
 	}
 	
-	sort(ret.begin(), ret.end(), [](auto p1, auto p2)
+	sort(ret.begin(), ret.end(), [](const pair<string, float>& p1, const pair<string, float>& p2)
 	{
 		return p1.second < p2.second;
 	});
@@ -1154,7 +1154,7 @@ ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>&
 	const size_t V = vocabs.size();
 	vector<uint32_t> wordIds;
 	unordered_map<uint32_t, LLEvaluater::MixedVectorCoef> coefs;
-	transform(words.begin(), words.end(), back_inserter(wordIds), [&](auto w) { return vocabs.get(w); });
+	transform(words.begin(), words.end(), back_inserter(wordIds), [&](const string& w) { return vocabs.get(w); });
 	size_t n = 0;
 	for (size_t i = 0; i < wordIds.size(); ++i)
 	{
@@ -1272,7 +1272,7 @@ vector<ChronoGramModel::EvalResult> ChronoGramModel::evaluate(const function<Rea
 			vector<float> lls;
 			auto p = predictSentTime(words, windowLen, nsQ, timePrior, timePriorWeight, initStep, threshold, &lls);
 			lock_guard<mutex> l{ writeMtx };
-			res[id] = { time, p.first, p.second, p.second / 2 / windowLen / words.size(), 
+			res[id] = EvalResult{ time, p.first, p.second, p.second / 2 / windowLen / words.size(), 
 				(p.first - time) * zSlope, move(words), move(lls) };
 			readCnd.notify_all();
 		}, r.timePoint, move(r.words));

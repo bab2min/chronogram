@@ -13,7 +13,7 @@ ChronoGramModel::ReadResult MultipleReader::operator()()
 
 	while (currentId < files.size())
 	{
-		while (getline(ifs, line))
+		while (getline(*ifs, line))
 		{
 			istringstream iss{ line };
 			istream_iterator<string> iBegin{ iss }, iEnd{};
@@ -24,7 +24,7 @@ ChronoGramModel::ReadResult MultipleReader::operator()()
 			return rr;
 		}
 		if (++currentId >= files.size()) break;
-		ifs = ifstream{ files[currentId] };
+		ifs = unique_ptr<ifstream>(new ifstream{ files[currentId] });
 	}
 	rr.stop = true;
 	return rr;

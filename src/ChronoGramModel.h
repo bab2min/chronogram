@@ -93,11 +93,11 @@ public:
 
 	struct EvalResult
 	{
-		float trueTime = 0;
-		float estimatedTime = 0;
-		float ll = 0;
-		float llPerWord = 0;
-		float normalizedErr = 0;
+		float trueTime;
+		float estimatedTime;
+		float ll;
+		float llPerWord;
+		float normalizedErr;
 		std::vector<std::string> words;
 		std::vector<float> lls;
 	};
