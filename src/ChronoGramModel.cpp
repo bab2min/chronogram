@@ -77,7 +77,7 @@ float ChronoGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative
 	float d = ((negative ? 0 : 1) - sigmoid(f)) * (1 - zeta);
 	float g = lr * d;
 
-	auto in_grad = g * outcol;
+	VectorXf in_grad = g * outcol;
 	auto out_grad = g * inSum;
 	outcol += out_grad;
 
@@ -360,6 +360,7 @@ ChronoGramModel::TrainResult ChronoGramModel::trainVectorsMulti(const uint32_t *
 		}
 		ld.updateOutMat.setZero();
 		ld.updateOutIdx.clear();
+		ld.updateOutIdxHash.clear();
 	}
 
 	return tr;
