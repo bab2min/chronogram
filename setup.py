@@ -42,7 +42,7 @@ for arch, aopt in arch_levels.items():
 setup(
     name='chronogram',
 
-    version='0.1.6',
+    version='0.1.7',
 
     description='Chrono-gram, the diachronic word embedding model based on Word2vec Skip-gram with Chebyshev approximation',
     long_description=long_description,
