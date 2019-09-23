@@ -2,7 +2,6 @@
 #include <iostream>
 #include <iterator>
 #include "ChronoGramModel.h"
-#include "IOUtils.h"
 #include "ThreadPool.h"
 #include "polynomials.hpp"
 
@@ -1334,7 +1333,8 @@ void ChronoGramModel::saveModel(ostream & os, bool compressed) const
 	writeToBinStream(os, timePrior);
 }
 
-ChronoGramModel ChronoGramModel::loadModel(istream & is)
+template<class _Istream>
+ChronoGramModel ChronoGramModel::loadModel(_Istream & is)
 {
 	auto pos = is.tellg();
 	char buf[5] = { 0, };
@@ -1408,6 +1408,9 @@ ChronoGramModel ChronoGramModel::loadModel(istream & is)
 		return ret;
 	}
 }
+
+template ChronoGramModel ChronoGramModel::loadModel<istream>(istream & is);
+template ChronoGramModel ChronoGramModel::loadModel<imstream>(imstream & is);
 
 float ChronoGramModel::getWordProbByTime(const std::string & word, float timePoint) const
 {

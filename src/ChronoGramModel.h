@@ -10,6 +10,7 @@
 #include "dictionary.h"
 #include "mathUtils.h"
 #include "Timer.h"
+#include "IOUtils.h"
 
 struct VocabCounter
 {
@@ -292,7 +293,8 @@ public:
 	Eigen::VectorXf getEmbedding(const std::string& word, float timePoint) const;
 
 	void saveModel(std::ostream& os, bool compressed = true) const;
-	static ChronoGramModel loadModel(std::istream& is);
+	template<class _Istream>
+	static ChronoGramModel loadModel(_Istream& is);
 
 	float getMinPoint() const { return zBias; }
 	float getMaxPoint() const { return zBias + 1 / zSlope; }

@@ -29,6 +29,7 @@
   <ItemGroup>
     <ClInclude Include="src\cxxopts.hpp" />
     <ClInclude Include="src\DataReader.h" />
+    <ClInclude Include="src\MMap.h" />
     <ClInclude Include="src\polynomials.hpp" />
     <ClInclude Include="src\ChronoGramModel.h" />
     <ClInclude Include="src\dictionary.h" />
@@ -42,6 +43,7 @@
     <ClCompile Include="src\IOUtils.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\ChronoGramModel.cpp" />
+    <ClCompile Include="src\MMap.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>

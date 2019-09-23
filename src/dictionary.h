@@ -68,7 +68,8 @@ public:
 		}
 	}
 
-	void readFromFile(std::istream& str)
+	template<class _Istream>
+	void readFromFile(_Istream& str)
 	{
 		uint32_t vocab;
 		str.read((char*)&vocab, 4);

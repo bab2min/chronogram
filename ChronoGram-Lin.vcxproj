@@ -88,6 +88,7 @@
     <ClCompile Include="src\DataReader.cpp" />
     <ClCompile Include="src\IOUtils.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\MMap.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\ChronoGramModel.h" />
@@ -96,6 +97,7 @@
     <ClInclude Include="src\dictionary.h" />
     <ClInclude Include="src\IOUtils.h" />
     <ClInclude Include="src\mathUtils.h" />
+    <ClInclude Include="src\MMap.h" />
     <ClInclude Include="src\polynomials.hpp" />
     <ClInclude Include="src\ThreadPool.h" />
     <ClInclude Include="src\Timer.h" />

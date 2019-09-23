@@ -4,9 +4,72 @@
 #include <vector>
 #include <map>
 
+class imstream
+{
+private:
+	const char* ptr, *begin, *end;
+public:
+	imstream(const char* _ptr, size_t len) : ptr(_ptr), begin(_ptr), end(_ptr + len)
+	{
+	}
+
+	template<class _Ty>
+	const _Ty& read()
+	{
+		if (end - ptr < sizeof(_Ty)) throw std::ios_base::failure(std::string{ "reading type '" } +typeid(_Ty).name() + "' failed");
+		auto p = (_Ty*)ptr;
+		ptr += sizeof(_Ty);
+		return *p;
+	}
+
+	bool read(void* dest, size_t size)
+	{
+		if (end - ptr < size) return false;
+		std::memcpy(dest, ptr, size);
+		ptr += size;
+		return true;
+	}
+
+	void exceptions(int)
+	{
+		// dummy functions
+	}
+
+	const char* get() const
+	{
+		return ptr;
+	}
+
+	size_t tellg() const
+	{
+		return ptr - begin;
+	}
+
+	bool seekg(std::streamoff distance, std::ios_base::seek_dir dir = std::ios_base::beg)
+	{
+		if (dir == std::ios_base::beg)
+		{
+			if (distance < 0 || distance > end - begin) return false;
+			ptr = begin + distance;
+		}
+		else if (dir == std::ios_base::cur)
+		{
+			if (ptr + distance < begin || ptr + distance > end) return false;
+			ptr += distance;
+		}
+		else if (dir == std::ios_base::end)
+		{
+			if (distance > 0 || end + distance < begin) return false;
+			ptr = end + distance;
+		}
+		else return false;
+		return true;
+	}
+};
+
 template<class _Ty> inline void writeToBinStream(std::ostream& os, const _Ty& v);
-template<class _Ty> inline _Ty readFromBinStream(std::istream& is);
-template<class _Ty> inline void readFromBinStream(std::istream& is, _Ty& v);
+template<class _Ty, class _Istream> inline _Ty readFromBinStream(_Istream& is);
+template<class _Ty, class _Istream> inline void readFromBinStream(_Istream& is, _Ty& v);
 
 template<class _Ty>
 inline typename std::enable_if<std::is_fundamental<_Ty>::value || std::is_enum<_Ty>::value>::type writeToBinStreamImpl(std::ostream& os, const _Ty& v)
@@ -14,8 +77,8 @@ inline typename std::enable_if<std::is_fundamental<_Ty>::value || std::is_enum<_
 	if (!os.write((const char*)&v, sizeof(_Ty))) throw std::ios_base::failure(std::string{ "writing type '" } +typeid(_Ty).name() + "' failed");
 }
 
-template<class _Ty>
-inline typename std::enable_if<std::is_fundamental<_Ty>::value || std::is_enum<_Ty>::value>::type readFromBinStreamImpl(std::istream& is, _Ty& v)
+template<class _Ty, class _Istream>
+inline typename std::enable_if<std::is_fundamental<_Ty>::value || std::is_enum<_Ty>::value>::type readFromBinStreamImpl(_Istream& is, _Ty& v)
 {
 	if (!is.read((char*)&v, sizeof(_Ty))) throw std::ios_base::failure(std::string{ "reading type '" } +typeid(_Ty).name() + "' failed");
 }
@@ -27,8 +90,8 @@ inline void writeToBinStreamImpl(std::ostream& os, const std::basic_string<_Elem
 	if (!os.write((const char*)&v[0], v.size() * sizeof(_Elem))) throw std::ios_base::failure(std::string{ "writing type '" } +typeid(std::basic_string<_Elem>).name() + "' failed");
 }
 
-template<typename _Elem>
-inline void readFromBinStreamImpl(std::istream& is, std::basic_string<_Elem>& v)
+template<typename _Elem, class _Istream>
+inline void readFromBinStreamImpl(_Istream& is, std::basic_string<_Elem>& v)
 {
 	v.resize(readFromBinStream<uint32_t>(is));
 	if (!is.read((char*)&v[0], v.size() * sizeof(_Elem))) throw std::ios_base::failure(std::string{ "reading type '" } +typeid(std::basic_string<_Elem>).name() + "' failed");
@@ -41,8 +104,8 @@ inline void writeToBinStreamImpl(std::ostream& os, const typename std::pair<_Ty1
 	writeToBinStream(os, v.second);
 }
 
-template<class _Ty1, class _Ty2>
-inline void readFromBinStreamImpl(std::istream& is, typename std::pair<_Ty1, _Ty2>& v)
+template<class _Ty1, class _Ty2, class _Istream>
+inline void readFromBinStreamImpl(_Istream& is, typename std::pair<_Ty1, _Ty2>& v)
 {
 	v.first = readFromBinStream<_Ty1>(is);
 	v.second = readFromBinStream<_Ty2>(is);
@@ -59,8 +122,8 @@ inline void writeToBinStreamImpl(std::ostream& os, const typename std::map<_Ty1,
 	}
 }
 
-template<class _Ty1, class _Ty2>
-inline void readFromBinStreamImpl(std::istream& is, typename std::map<_Ty1, _Ty2>& v)
+template<class _Ty1, class _Ty2, class _Istream>
+inline void readFromBinStreamImpl(_Istream& is, typename std::map<_Ty1, _Ty2>& v)
 {
 	size_t len = readFromBinStream<uint32_t>(is);
 	v.clear();
@@ -81,8 +144,8 @@ inline void writeToBinStreamImpl(std::ostream& os, const typename std::vector<_T
 	}
 }
 
-template<class _Ty1>
-inline void readFromBinStreamImpl(std::istream& is, typename std::vector<_Ty1>& v)
+template<class _Ty1, class _Istream>
+inline void readFromBinStreamImpl(_Istream& is, typename std::vector<_Ty1>& v)
 {
 	size_t len = readFromBinStream<uint32_t>(is);
 	v.clear();
@@ -101,8 +164,8 @@ inline void writeToBinStreamImpl(std::ostream& os, const typename Eigen::Matrix<
 	}
 }
 
-template<typename _Ty1, int _Rows, int _Cols>
-inline void readFromBinStreamImpl(std::istream& is, typename Eigen::Matrix<_Ty1, _Rows, _Cols>& v)
+template<typename _Ty1, int _Rows, int _Cols, class _Istream>
+inline void readFromBinStreamImpl(_Istream& is, typename Eigen::Matrix<_Ty1, _Rows, _Cols>& v)
 {
 	for (size_t i = 0; i < v.size(); ++i)
 	{
@@ -112,6 +175,7 @@ inline void readFromBinStreamImpl(std::istream& is, typename Eigen::Matrix<_Ty1,
 
 void writeFloatVL(std::ostream& os, float f);
 float readFloatVL(std::istream& is);
+float readFloatVL(imstream& is);
 
 template<typename _Ty1, int _Rows, int _Cols>
 inline void writeToBinStreamCompressed(std::ostream& os, const typename Eigen::Matrix<_Ty1, _Rows, _Cols>& v)
@@ -122,8 +186,8 @@ inline void writeToBinStreamCompressed(std::ostream& os, const typename Eigen::M
 	}
 }
 
-template<typename _Ty1, int _Rows, int _Cols>
-inline void readFromBinStreamCompressed(std::istream& is, typename Eigen::Matrix<_Ty1, _Rows, _Cols>& v)
+template<typename _Ty1, int _Rows, int _Cols, class _Istream>
+inline void readFromBinStreamCompressed(_Istream& is, typename Eigen::Matrix<_Ty1, _Rows, _Cols>& v)
 {
 	for (size_t i = 0; i < v.size(); ++i)
 	{
@@ -138,16 +202,16 @@ inline void writeToBinStream(std::ostream& os, const _Ty& v)
 }
 
 
-template<class _Ty>
-inline _Ty readFromBinStream(std::istream& is)
+template<class _Ty, class _Istream>
+inline _Ty readFromBinStream(_Istream& is)
 {
 	_Ty v;
 	readFromBinStreamImpl(is, v);
 	return v;
 }
 
-template<class _Ty>
-inline void readFromBinStream(std::istream& is, _Ty& v)
+template<class _Ty, class _Istream>
+inline void readFromBinStream(_Istream& is, _Ty& v)
 {
 	readFromBinStreamImpl(is, v);
 }

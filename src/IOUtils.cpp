@@ -33,7 +33,7 @@ void writeFloatVL(ostream& os, float f)
 	}
 }
 
-float readFloatVL(istream& is)
+float readFloatVL(std::istream& is)
 {
 	uint8_t w[2] = { 0, };
 	is.read((char*)w, 1);
@@ -47,6 +47,26 @@ float readFloatVL(istream& is)
 	}
 	else
 	{
+		w[0] |= (w[0] & 0x40) << 1;
+		return (int8_t)w[0] / (float)VL_PRECISION;
+	}
+}
+
+float readFloatVL(imstream& is)
+{
+	uint8_t w[2] = { 0, };
+	memcpy(w, is.get(), 2);
+	if (w[0] & 0x80)
+	{
+		is.seekg(2, ios_base::cur);
+		w[0] ^= 0x80;
+		w[0] |= (w[0] & 0x40) << 1;
+		uint16_t un = (w[0] << 8) | w[1];
+		return (int16_t)un / (float)VL_PRECISION;
+	}
+	else
+	{
+		is.seekg(1, ios_base::cur);
 		w[0] |= (w[0] & 0x40) << 1;
 		return (int8_t)w[0] / (float)VL_PRECISION;
 	}

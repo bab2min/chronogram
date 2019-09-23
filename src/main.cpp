@@ -16,6 +16,8 @@
 #include "cxxopts.hpp"
 #include "ChronoGramModel.h"
 #include "DataReader.h"
+#include "MMap.h"
+#include "IOUtils.h"
 
 using namespace std;
 
@@ -217,7 +219,9 @@ int main(int argc, char* argv[])
 	if (!args.load.empty())
 	{
 		cout << "Loading Model: " << args.load << endl;
-		ifstream ifs{ args.load, ios_base::binary };
+		//ifstream ifs{ args.load, ios_base::binary };
+		MMap mm{ args.load };
+		imstream ifs{ mm.get(), mm.size() };
 		tgm = ChronoGramModel::loadModel(ifs);
 		cout << "Dimension: " << tgm.getD() << "\tOrder: " << tgm.getR() << endl;
 		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << endl;
