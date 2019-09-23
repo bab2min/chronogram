@@ -7,6 +7,7 @@
 #include "ThreadPool.h"
 #include "PyUtils.h"
 #include "pyDocs.h"
+#include "MMap.h"
 
 using namespace std;
 
@@ -469,7 +470,8 @@ PyObject * CGM_load(PyObject *, PyObject * args, PyObject * kwargs)
 		auto* p = (CGMObject*)PyObject_CallObject((PyObject*)&CGM_type, Py_BuildValue("()"));
 		try
 		{
-			ifstream is{ filename, ios_base::binary };
+			MMap mm{ filename };
+			imstream is{ mm.get(), mm.size() };
 			*p->inst = ChronoGramModel::loadModel(is);
 		}
 		catch (const exception&)
@@ -1108,13 +1110,20 @@ PyMODINIT_FUNC MODULE_NAME()
 		nullptr,
 	};
 
-	if (PyType_Ready(&CGM_type) < 0) return nullptr;
-	if (PyType_Ready(&CGV_type) < 0) return nullptr;
-	if (PyType_Ready(&CGE_type) < 0) return nullptr;
-
 	gModule = PyModule_Create(&mod);
 	if (!gModule) return nullptr;
 
+	if (PyType_Ready(&CGM_type) < 0) return nullptr;
+	Py_INCREF(&CGM_type);
+	PyModule_AddObject(gModule, "Chronogram", (PyObject*)&CGM_type);
+
+	if (PyType_Ready(&CGV_type) < 0) return nullptr;
+	Py_INCREF(&CGV_type);
+	PyModule_AddObject(gModule, "_Vocabs", (PyObject*)&CGV_type);
+
+	if (PyType_Ready(&CGE_type) < 0) return nullptr;
+	Py_INCREF(&CGE_type);
+	PyModule_AddObject(gModule, "_LLEvaluator", (PyObject*)&CGE_type);
 
 #ifdef __AVX2__
 	PyModule_AddStringConstant(gModule, "isa", "avx2");
@@ -1126,11 +1135,5 @@ PyMODINIT_FUNC MODULE_NAME()
 	PyModule_AddStringConstant(gModule, "isa", "none");
 #endif
 
-	Py_INCREF(&CGM_type);
-	PyModule_AddObject(gModule, "Chronogram", (PyObject*)&CGM_type);
-	Py_INCREF(&CGE_type);
-	PyModule_AddObject(gModule, "_LLEvaluator", (PyObject*)&CGE_type);
-	Py_INCREF(&CGV_type);
-	PyModule_AddObject(gModule, "_Vocabs", (PyObject*)&CGE_type);
 	return gModule;
 }
