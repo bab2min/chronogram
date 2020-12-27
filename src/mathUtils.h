@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <numeric>
 
 inline float sigmoid(float x)
 {

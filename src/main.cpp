@@ -32,7 +32,7 @@ struct Args
 	int order = 5, negative = 5, temporalSample = 5;
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
-	int nsQ = 8, initStep = 8;
+	int nsQ = 8, initStep = 8, subword = 0;
 	float eta = 1.f, zeta = .1f, lambda = .1f, padding = -1;
 	float initEpochs = 0, epoch = 1, threshold = 0.0025f;
 	float timePrior = 0;
@@ -78,6 +78,7 @@ int main(int argc, char* argv[])
 			("lambda", "", cxxopts::value<float>())
 			("p,padding", "", cxxopts::value<float>())
 			("ss", "Sub-Samping", cxxopts::value<float>())
+			("subword", "size of subword ngram", cxxopts::value<int>())
 			("rv", "recount vocabs", cxxopts::value<int>()->implicit_value("1"))
 
 			("compressed", "Save as compressed", cxxopts::value<int>(), "default = 1")
@@ -169,6 +170,7 @@ int main(int argc, char* argv[])
 			READ_OPT(nsQ, int);
 			READ_OPT(initStep, int);
 			READ_OPT(report, int);
+			READ_OPT(subword, int);
 			
 			READ_OPT(compressed, int);
 			READ_OPT(semEval, int);
@@ -210,7 +212,7 @@ int main(int argc, char* argv[])
 	}
 
 	ChronoGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative,
-		(size_t)args.temporalSample, args.eta, args.zeta, args.lambda };
+		(size_t)args.temporalSample, args.eta, args.zeta, args.lambda, (size_t)args.subword };
 	if (args.padding >= 0)
 	{
 		tgm.setPadding(args.padding);
@@ -298,6 +300,7 @@ int main(int argc, char* argv[])
 			}, args.minT, args.maxT);
 
 			cout << "Vocab Size: " << tgm.getVocabs().size() << endl;
+			cout << "Subword Vocab Size: " << tgm.getSubwordVocabs().size() << endl;
 			if (args.recountVocabs)
 			{
 				cout << "Recounting vocabs in time range [" << args.minT << ", " << args.maxT << "]" << endl;

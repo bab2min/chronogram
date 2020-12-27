@@ -7,6 +7,7 @@
 #include <mutex>
 #include <atomic>
 #include <Eigen/Dense>
+#include "ThreadPool.h"
 #include "dictionary.h"
 #include "mathUtils.h"
 #include "Timer.h"
@@ -122,6 +123,7 @@ private:
 	std::vector<float> wordScale;
 	std::unordered_set<uint32_t> fixedWords;
 	Eigen::MatrixXf in; // (D, R * V)
+	Eigen::MatrixXf subwordIn; // (D, R * SV)
 	Eigen::MatrixXf out; // (D, V)
 	size_t D; // dimension of word vector
 	size_t R; // order of Lengendre polynomial
@@ -140,31 +142,35 @@ private:
 	size_t procWords = 0, lastProcWords = 0, procTimePoints = 0;
 	size_t totalLLCnt = 0, timeLLCnt = 0;
 	double totalLL = 0, ugLL = 0, timeLL = 0;
+	size_t subwordGrams = 0, subwordDropoutRemain = 3;
 
 	ThreadLocalData globalData;
-	WordDictionary<> vocabs;
+	WordDictionary<> vocabs, subwordVocabs;
 
 	std::vector<float> unigramDist;
 	std::discrete_distribution<uint32_t> unigramTable;
+	std::vector<uint32_t> subwordTable;
+	std::vector<size_t> subwordTablePtrs;
 	size_t negativeSampleSize = 0, temporalSample = 0;
 
 	Timer timer;
 
 	static Eigen::VectorXf makeCoef(size_t R, float z);
 	static Eigen::VectorXf makeDCoef(size_t R, float z);
-	Eigen::VectorXf makeTimedVector(size_t wv, const Eigen::VectorXf& coef) const;
+	const Eigen::VectorXf& makeTimedVector(size_t wv, const Eigen::VectorXf& coef) const;
+	const Eigen::VectorXf& makeTimedVectorDropout(size_t wv, const Eigen::VectorXf& coef, const std::vector<uint32_t>& subwords) const;
 
 	template<bool _Initialization = false>
-	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight);
+	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords);
 
 	template<bool _Initialization = false>
-	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight,
+	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
 
-	float inplaceTimeUpdate(size_t x, float lr, const Eigen::VectorXf& lWeight, 
+	float inplaceTimeUpdate(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
 		const std::vector<const Eigen::VectorXf*>& randSampleWeight);
-	float getTimeUpdateGradient(size_t x, float lr, const Eigen::VectorXf& lWeight,
+	float getTimeUpdateGradient(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
 		const std::vector<const Eigen::VectorXf*>& randSampleWeight,
 		Eigen::Block<Eigen::MatrixXf> grad);
 
@@ -172,6 +178,7 @@ private:
 
 	void buildModel();
 	void buildTable();
+	void buildSubwordTable();
 
 	template<bool _Initialization = false, bool _GNgramMode = false>
 	TrainResult trainVectors(const uint32_t* ws, size_t N, float timePoint,
@@ -180,9 +187,9 @@ private:
 	template<bool _Initialization = false, bool _GNgramMode = false>
 	TrainResult trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
 		size_t windowLen, float lr, ThreadLocalData& ld,
-		std::mutex* mtxIn, std::mutex* mtxOut, size_t numWorkers = 1);
+		std::mutex* mtxIn, std::mutex* mtxSubwordIn, std::mutex* mtxOut, size_t hashSize);
 	void trainTimePrior(const float* ts, size_t N, float lr, size_t report);
-	void normalizeWordDist(bool updateVocab = true);
+	void normalizeWordDist(bool updateVocab = true, ThreadPool* pool = nullptr);
 
 	float getTimePrior(const Eigen::VectorXf& coef) const;
 	float getWordProbByTime(uint32_t w, const Eigen::VectorXf& timedVector, const Eigen::VectorXf& coef, float tPrior) const;
@@ -190,11 +197,11 @@ private:
 public:
 	ChronoGramModel(size_t _D = 100, size_t _R = 6,
 		float _subsampling = 1e-4f, size_t _negativeSampleSize = 5, size_t _timeNegativeSample = 5,
-		float _eta = 1.f, float _zeta = .1f, float _lambda = .1f,
+		float _eta = 1.f, float _zeta = .1f, float _lambda = .1f, size_t _subwordGrams = 0,
 		size_t seed = std::random_device()())
 		: D(_D), R(_R), subsampling(_subsampling), zeta(_zeta), lambda(_lambda),
 		vEta(Eigen::VectorXf::Constant(_R, _eta)),
-		negativeSampleSize(_negativeSampleSize), temporalSample(_timeNegativeSample)
+		negativeSampleSize(_negativeSampleSize), temporalSample(_timeNegativeSample), subwordGrams(_subwordGrams)
 	{
 		globalData.rg = std::mt19937_64{ seed };
 
@@ -202,42 +209,9 @@ public:
 		timePadding = .25f / R;
 	}
 
-	ChronoGramModel(ChronoGramModel&& o)
-		: D(o.D), R(o.R), globalData(o.globalData),
-		vocabs(std::move(o.vocabs)), frequencies(std::move(o.frequencies)), 
-		unigramTable(std::move(o.unigramTable)), unigramDist(std::move(o.unigramDist)),
-		in(std::move(o.in)), out(std::move(o.out)), zBias(o.zBias), zSlope(o.zSlope),
-		vEta(std::move(o.vEta)), zeta(o.zeta), lambda(o.lambda),
-		timePrior(std::move(o.timePrior)), timePadding(o.timePadding),
-		timePriorScale(o.timePriorScale), wordScale(std::move(o.wordScale)),
-		negativeSampleSize(o.negativeSampleSize), temporalSample(o.temporalSample)
-	{
-	}
+	ChronoGramModel(ChronoGramModel&& o) = default;
 
-	ChronoGramModel& operator=(ChronoGramModel&& o)
-	{
-		D = o.D;
-		R = o.R;
-		globalData = o.globalData;
-		vocabs = std::move(o.vocabs);
-		frequencies = std::move(o.frequencies);
-		unigramTable = std::move(o.unigramTable);
-		unigramDist = std::move(o.unigramDist);
-		in = std::move(o.in);
-		out = std::move(o.out);
-		zBias = o.zBias;
-		zSlope = o.zSlope;
-		vEta = std::move(o.vEta);
-		zeta = o.zeta;
-		lambda = o.lambda;
-		timePrior = std::move(o.timePrior);
-		timePadding = o.timePadding;
-		timePriorScale = o.timePriorScale;
-		wordScale = std::move(o.wordScale);
-		negativeSampleSize = o.negativeSampleSize;
-		temporalSample = o.temporalSample;
-		return *this;
-	}
+	ChronoGramModel& operator=(ChronoGramModel&& o) = default;
 
 	void buildVocab(const std::function<ResultReader()>& reader, size_t minCnt = 10, size_t numWorkers = 0);
 	size_t recountVocab(const std::function<ResultReader()>& reader, float minT, float maxT, size_t numWorkers);
@@ -246,13 +220,19 @@ public:
 
 	void buildVocabFromDict(const std::function<std::pair<std::string, uint64_t>()>& reader, float minT, float maxT);
 
+	using ReportCallback = std::function<bool(size_t, float, float, float, float, float)>;
+
+	static bool defaultReportCallback(size_t steps, float progress, float totalLL, float ugLL, float lr, float timePerKword);
+
 	template<bool _Initialization = false>
 	void train(const std::function<ResultReader()>& reader, size_t numWorkers = 0,
-		size_t windowLen = 4, float start_lr = .025f, float end_lr = .00025f, size_t batchSents = 1000, float epochs = 1, size_t report = 10000);
+		size_t windowLen = 4, float start_lr = .025f, float end_lr = .00025f, size_t batchSents = 1000, float epochs = 1, size_t report = 100000,
+		const ReportCallback& reportCallback = defaultReportCallback);
 
 	template<bool _Initialization = false>
 	void trainFromGNgram(const std::function<GNgramResultReader()>& reader, uint64_t maxItems, size_t numWorkers = 0,
-		float start_lr = .025f, float end_lr = .00025f, size_t batchSents = 1000, float epochs = 1, size_t report = 10000);
+		float start_lr = .025f, float end_lr = .00025f, size_t batchSents = 1000, float epochs = 1, size_t report = 100000,
+		const ReportCallback& reportCallback = defaultReportCallback);
 
 	float arcLengthOfWord(const std::string& word, size_t step = 100) const;
 	float angleOfWord(const std::string& word, size_t step = 100) const;
@@ -286,6 +266,11 @@ public:
 	const std::vector<std::string>& getVocabs() const
 	{
 		return vocabs.getKeys();
+	}
+
+	const std::vector<std::string>& getSubwordVocabs() const
+	{
+		return subwordVocabs.getKeys();
 	}
 
 	Eigen::MatrixXf getEmbeddingMatrix(const std::string& word) const;

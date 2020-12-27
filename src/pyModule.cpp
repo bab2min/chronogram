@@ -1,3 +1,5 @@
+#define MAIN_MODULE
+
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -199,6 +201,7 @@ static PyObject* CGM_evaluator(CGMObject* self, PyObject* args, PyObject *kwargs
 static PyObject* CGM_estimateTime(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_pTime(CGMObject* self, PyObject* args, PyObject *kwargs);
 static PyObject* CGM_pTimeWord(CGMObject* self, PyObject* args, PyObject *kwargs);
+static PyObject* CGM_defaultReportCallback(PyObject*, PyObject* args, PyObject* kwargs);
 
 static PyMethodDef CGM_methods[] =
 {
@@ -220,6 +223,7 @@ static PyMethodDef CGM_methods[] =
 	{ "p_time_word", (PyCFunction)CGM_pTimeWord, METH_VARARGS | METH_KEYWORDS, CGM_p_time_word__doc__ },
 	{ "evaluator", (PyCFunction)CGM_evaluator, METH_VARARGS | METH_KEYWORDS, CGM_evaluator__doc__ },
 	{ "estimate_time", (PyCFunction)CGM_estimateTime, METH_VARARGS | METH_KEYWORDS, CGM_estimate_time__doc__ },
+	{ "default_report_callback", (PyCFunction)CGM_defaultReportCallback, METH_STATIC | METH_VARARGS | METH_KEYWORDS, "" },
 	{ nullptr }
 };
 
@@ -541,7 +545,7 @@ function<ChronoGramModel::ResultReader()> makeCGMReader(PyObject* reader)
 				auto* item = PyIter_Next(r);
 				if (item)
 				{
-					py::AutoReleaser ar(item);
+					py::UniqueObj ar(item);
 					if (PyTuple_Size(item) != 2)
 					{
 						auto repr = PyObject_Repr(item);
@@ -549,10 +553,9 @@ function<ChronoGramModel::ResultReader()> makeCGMReader(PyObject* reader)
 						Py_XDECREF(repr);
 						throw runtime_error{ "wrong return value of 'reader' : " + srepr };
 					}
-					auto* wordIter = PyObject_GetIter(PyTuple_GetItem(item, 0));
-					if (!wordIter) throw runtime_error{ "first item of tuple must be list of str" };
-					ret.words = py::makeIterToVector(wordIter);
-					Py_XDECREF(wordIter);
+					ret.words = py::toCpp<vector<string>>(PyTuple_GetItem(item, 0),
+						"first item of tuple must be list of str"
+					);
 					ret.timePoint = PyFloat_AsDouble(PyTuple_GetItem(item, 1));
 					if (ret.timePoint == -1 && PyErr_Occurred()) throw bad_exception{};
 				}
@@ -625,13 +628,28 @@ PyObject * CGM_train(CGMObject * self, PyObject * args, PyObject * kwargs)
 	PyObject* reader = nullptr;
 	size_t workers = 0, windowLen = 4, batchSents = 1000, report = 10000;
 	float startLR = 0.025, endLR = 0.000025, epochs = 1;
-	static const char* kwlist[] = { "reader", "workers", "window_len", "start_lr", "end_lr", "batch_size", "epochs", "report", nullptr };
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnffnfn", (char**)kwlist, 
-		&reader, &workers, &windowLen, &startLR, &endLR, &batchSents, &epochs, &report)) return nullptr;
+	PyObject* reportCallback = nullptr;
+	static const char* kwlist[] = { "reader", "workers", "window_len", "start_lr", "end_lr", "batch_size", "epochs", "report", "report_callback", nullptr };
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnffnfnO", (char**)kwlist, 
+		&reader, &workers, &windowLen, &startLR, &endLR, &batchSents, &epochs, &report, &reportCallback)) return nullptr;
+
+	ChronoGramModel::ReportCallback callback = ChronoGramModel::defaultReportCallback;
+	if (reportCallback)
+	{
+		if (!PyCallable_Check(reportCallback)) throw runtime_error{ "`report_callback` must be an instance of `Callable[[float]*5, bool]`" };
+		callback = [&](size_t a, float b, float c, float d, float e, float f) -> bool
+		{
+			py::UniqueObj args{ py::buildPyTuple(a, b, c, d, e, f) };
+			py::UniqueObj res{ PyObject_Call(reportCallback, args, nullptr) };
+			if (!res) throw bad_exception{};
+			return py::toCpp<bool>(res);
+		};
+	}
+
 	try
 	{
 		if (!self->inst) throw runtime_error{ "inst is null" };
-		self->inst->train(makeCGMReader(reader), workers, windowLen, startLR, endLR, batchSents, epochs, report);
+		self->inst->train(makeCGMReader(reader), workers, windowLen, startLR, endLR, batchSents, epochs, report, callback);
 		Py_INCREF(Py_None);
 		return Py_None;
 	}
@@ -717,13 +735,28 @@ PyObject * CGM_trainGN(CGMObject * self, PyObject * args, PyObject * kwargs)
 	const char* ngram;
 	size_t workers = 0, maxItems = -1, batchSents = 1000, report = 10000;
 	float startLR = 0.025, endLR = 0.000025, epochs = 1;
-	static const char* kwlist[] = { "ngram_file", "max_items", "workers", "start_lr", "end_lr", "batch_size", "epochs", "report", nullptr };
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|nnffnfn", (char**)kwlist,
-		&ngram, &maxItems, &workers, &startLR, &endLR, &batchSents, &epochs, &report)) return nullptr;
+	PyObject* reportCallback = nullptr;
+	static const char* kwlist[] = { "ngram_file", "max_items", "workers", "start_lr", "end_lr", "batch_size", "epochs", "report", "report_callback", nullptr };
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|nnffnfnO", (char**)kwlist,
+		&ngram, &maxItems, &workers, &startLR, &endLR, &batchSents, &epochs, &report, &reportCallback)) return nullptr;
+	
+	ChronoGramModel::ReportCallback callback = ChronoGramModel::defaultReportCallback;
+	if (reportCallback)
+	{
+		if (!PyCallable_Check(reportCallback)) throw runtime_error{ "`report_callback` must be an instance of `Callable[[float]*5, bool]`" };
+		callback = [&](size_t a, float b, float c, float d, float e, float f) -> bool
+		{
+			py::UniqueObj args{ py::buildPyTuple(a, b, c, d, e, f) };
+			py::UniqueObj res{ PyObject_Call(reportCallback, args, nullptr) };
+			if (!res) throw bad_exception{};
+			return py::toCpp<bool>(res);
+		};
+	}
+
 	try
 	{
 		if (!self->inst) throw runtime_error{ "inst is null" };
-		self->inst->trainFromGNgram(GNgramBinaryReader::factory(ngram), maxItems, workers, startLR, endLR, batchSents, epochs, report);
+		self->inst->trainFromGNgram(GNgramBinaryReader::factory(ngram), maxItems, workers, startLR, endLR, batchSents, epochs, report, callback);
 		Py_INCREF(Py_None);
 		return Py_None;
 	}
@@ -767,8 +800,8 @@ PyObject * CGM_mostSimilar(CGMObject * self, PyObject * args, PyObject * kwargs)
 		else
 		{
 			PyObject *iter = PyObject_GetIter(obj), *item;
-			py::AutoReleaser arIter{ iter };
-			if(!iter) throw runtime_error{ "'positives' and 'negatives' should be (word :str, time :float) or its list" };
+			py::UniqueObj arIter{ iter };
+			if(!iter) throw runtime_error{ "`positives` and `negatives` should be (word :str, time :float) or its list" };
 			while (item = PyIter_Next(iter))
 			{
 				ret.emplace_back(parseWord(item));
@@ -865,10 +898,7 @@ PyObject * CGM_mostSimilarStatic(CGMObject * self, PyObject * args, PyObject * k
 		}
 		else
 		{
-			PyObject *iter = PyObject_GetIter(obj);
-			if (!iter) throw runtime_error{ "'positives' and 'negatives' should be str or its list" };
-			ret = py::makeIterToVector(iter);
-			Py_XDECREF(iter);
+			ret = py::toCpp<vector<string>>(obj, "`positives` and `negatives` should be str or its list");
 		}
 		return ret;
 	};
@@ -952,16 +982,13 @@ PyObject * CGM_evaluator(CGMObject * self, PyObject * args, PyObject * kwargs)
 			&words, &windowLen, &nsQ, &timePrior, &timePriorWeight)) return nullptr;
 		
 		if (!self->inst) throw runtime_error{ "inst is null" };
-		auto* wordIter = PyObject_GetIter(words);
-		if (!wordIter) throw runtime_error{ "'words' must be list of str" };
-		auto wordsVector = py::makeIterToVector(wordIter);
-		Py_XDECREF(wordIter);
+		auto wordsVector = py::toCpp<vector<string>>(words, "`words` must be list of str");
 		auto* e = new ChronoGramModel::LLEvaluater{ self->inst->evaluateSent(wordsVector, windowLen, nsQ, [timePrior](float t)
 		{
 			if(!timePrior) return 0.f;
 			auto* ret = PyObject_CallObject(timePrior, Py_BuildValue("(f)", t));
 			if (!ret) throw bad_exception{};
-			py::AutoReleaser ar{ ret };
+			py::UniqueObj ar{ ret };
 			float v = PyFloat_AsDouble(ret);
 			if (v == -1 && PyErr_Occurred()) throw bad_exception{};
 			return v;
@@ -993,16 +1020,13 @@ PyObject * CGM_estimateTime(CGMObject * self, PyObject * args, PyObject * kwargs
 			&min_t, &max_t, &step_t, &workers)) return nullptr;
 
 		if (!self->inst) throw runtime_error{ "inst is null" };
-		auto* wordIter = PyObject_GetIter(words);
-		if (!wordIter) throw runtime_error{ "'words' must be list of str" };
-		auto wordsVector = py::makeIterToVector(wordIter);
-		Py_XDECREF(wordIter);
+		auto wordsVector = py::toCpp<vector<string>>(words, "`words` must be list of str");
 		auto ev = self->inst->evaluateSent(wordsVector, windowLen, nsQ, [timePrior](float t)
 		{
 			if (!timePrior) return 0.f;
 			auto* ret = PyObject_CallObject(timePrior, Py_BuildValue("(f)", t));
 			if (!ret) throw bad_exception{};
-			py::AutoReleaser ar{ ret };
+			py::UniqueObj ar{ ret };
 			float v = PyFloat_AsDouble(ret);
 			if (v == -1 && PyErr_Occurred()) throw bad_exception{};
 			return v;
@@ -1098,6 +1122,29 @@ PyObject * CGM_pTimeWord(CGMObject * self, PyObject * args, PyObject * kwargs)
 	}
 }
 
+PyObject* CGM_defaultReportCallback(PyObject*, PyObject* args, PyObject* kwargs)
+{
+	try
+	{
+		size_t steps;
+		float progress, ctxLL, ugLL, lr, timePerKword;
+		static const char* kwlist[] = { "steps", "progress", "ctx_ll", "ug_ll", "lr", "time_per_kword", nullptr };
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "nfffff", (char**)kwlist, 
+			&steps, &progress, &ctxLL, &ugLL, &lr, &timePerKword)) return nullptr;
+
+		return py::buildPyValue(ChronoGramModel::defaultReportCallback(steps, progress, ctxLL, ugLL, lr, timePerKword));
+	}
+	catch (const bad_exception&)
+	{
+		return nullptr;
+	}
+	catch (const exception& e)
+	{
+		PyErr_SetString(PyExc_Exception, e.what());
+		return nullptr;
+	}
+}
+
 
 PyMODINIT_FUNC MODULE_NAME()
 {
@@ -1109,6 +1156,8 @@ PyMODINIT_FUNC MODULE_NAME()
 		-1,
 		nullptr,
 	};
+
+	import_array();
 
 	gModule = PyModule_Create(&mod);
 	if (!gModule) return nullptr;
