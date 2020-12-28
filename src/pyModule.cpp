@@ -35,11 +35,30 @@ static PyObject* CGM_##GETTER(CGMObject *self, void *closure)\
 	}\
 }\
 
+#define DEFINE_HP_GETTER(HP)\
+static PyObject* CGM_##HP(CGMObject *self, void *closure)\
+{\
+	try\
+	{\
+		if (!self->inst) throw runtime_error{ "inst is null" };\
+		return py::buildPyValue(self->inst->getHP().HP);\
+	}\
+	catch (const bad_exception&)\
+	{\
+		return nullptr;\
+	}\
+	catch (const exception& e)\
+	{\
+		PyErr_SetString(PyExc_Exception, e.what());\
+		return nullptr;\
+	}\
+}\
 
 struct CGMObject
 {
 	PyObject_HEAD;
 	ChronoGramModel* inst;
+	unique_ptr<ThreadPool> pool;
 
 	static void dealloc(CGMObject* self)
 	{
@@ -47,23 +66,26 @@ struct CGMObject
 		{
 			delete self->inst;
 		}
+		self->pool.~unique_ptr();
 		Py_TYPE(self)->tp_free((PyObject*)self);
 	}
 
 	static int init(CGMObject *self, PyObject *args, PyObject *kwargs)
 	{
-		size_t M = 100, L = 6;
-		float subsampling = 1e-4;
-		size_t NS = 5, TNS = 5;
-		float eta = 1, zeta = 0.1f, lambda = 0.1f;
+		ChronoGramModel::HyperParameter hp;
 		size_t seed = std::random_device{}();
-		static const char* kwlist[] = { "d", "r", "subsampling", "word_ns", "time_ns", "eta", "zeta", "lambda_v", "seed", nullptr };
-		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|nnfnnfffn", (char**)kwlist,
-			&M, &L, &subsampling, &NS, &TNS, &eta, &zeta, &lambda, &seed)) return -1;
+		static const char* kwlist[] = { "d", "r", "subsampling", "temporal_subsampling", 
+			"word_ns", "time_ns", "eta", "zeta", "lambda_v", 
+			"subword_ngram", "subword_dropout_remain", "seed", nullptr };
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|iiffiifffiii", (char**)kwlist,
+			&hp.dimension, &hp.order, &hp.subsampling, &hp.temporalSubsampling,
+			&hp.negativeSamples, &hp.temporalNegativeSamples, 
+			&hp.eta, &hp.zeta, &hp.lambda, &hp.subwordGrams, &hp.subwordDropoutRemain, &seed)) return -1;
 		try
 		{
-			ChronoGramModel* inst = new ChronoGramModel(M, L, subsampling, NS, TNS, eta, zeta, lambda, seed);
+			ChronoGramModel* inst = new ChronoGramModel(hp, seed);
 			self->inst = inst;
+			new (&self->pool) unique_ptr<ThreadPool>;
 		}
 		catch (const exception& e)
 		{
@@ -227,10 +249,17 @@ static PyMethodDef CGM_methods[] =
 	{ nullptr }
 };
 
-DEFINE_GETTER(getD);
-DEFINE_GETTER(getR);
-DEFINE_GETTER(getZeta);
-DEFINE_GETTER(getLambda);
+DEFINE_HP_GETTER(dimension);
+DEFINE_HP_GETTER(order);
+DEFINE_HP_GETTER(zeta);
+DEFINE_HP_GETTER(lambda);
+DEFINE_HP_GETTER(subsampling);
+DEFINE_HP_GETTER(temporalSubsampling);
+DEFINE_HP_GETTER(negativeSamples);
+DEFINE_HP_GETTER(temporalNegativeSamples);
+DEFINE_HP_GETTER(subwordGrams);
+DEFINE_HP_GETTER(subwordDropoutRemain);
+
 DEFINE_GETTER(getPadding);
 DEFINE_GETTER(getMinPoint);
 DEFINE_GETTER(getMaxPoint);
@@ -301,10 +330,19 @@ static int CGM_setTPThreshold(CGMObject *self, PyObject *value, void *closure)
 }
 
 static PyGetSetDef CGM_getseters[] = {
-	{ (char*)"d", (getter)CGM_getD, nullptr, (char*)"embedding dimension", NULL },
-	{ (char*)"r", (getter)CGM_getR, nullptr, (char*)"chebyshev approximation order", NULL },
-	{ (char*)"zeta", (getter)CGM_getZeta, nullptr, (char*)"zeta, mixing factor", NULL },
-	{ (char*)"lambda_v", (getter)CGM_getLambda, nullptr, (char*)"lambda", NULL },
+	{ (char*)"d", (getter)CGM_dimension, nullptr, (char*)"embedding dimension", NULL },
+	{ (char*)"dimension", (getter)CGM_dimension, nullptr, (char*)"embedding dimension", NULL },
+	{ (char*)"r", (getter)CGM_order, nullptr, (char*)"chebyshev approximation order", NULL },
+	{ (char*)"order", (getter)CGM_order, nullptr, (char*)"chebyshev approximation order", NULL },
+	{ (char*)"zeta", (getter)CGM_zeta, nullptr, (char*)"zeta, mixing factor", NULL },
+	{ (char*)"lambda_v", (getter)CGM_lambda, nullptr, (char*)"lambda", NULL },
+	{ (char*)"subsampling", (getter)CGM_subsampling, nullptr, (char*)"", NULL },
+	{ (char*)"temporal_subsampling", (getter)CGM_temporalSubsampling, nullptr, (char*)"", NULL },
+	{ (char*)"negative_samples", (getter)CGM_negativeSamples, nullptr, (char*)"", NULL },
+	{ (char*)"temporal_negative_samples", (getter)CGM_temporalNegativeSamples, nullptr, (char*)"", NULL },
+	{ (char*)"subword_ngrams", (getter)CGM_subwordGrams, nullptr, (char*)"", NULL },
+	{ (char*)"subword_dropout_remain", (getter)CGM_subwordDropoutRemain, nullptr, (char*)"", NULL },
+
 	{ (char*)"min_time", (getter)CGM_getMinPoint, nullptr, (char*)"time range", NULL },
 	{ (char*)"max_time", (getter)CGM_getMaxPoint, nullptr, (char*)"time range", NULL },
 	{ (char*)"vocabs", (getter)CGMObject::getVocabs, nullptr, (char*)"vocabularies in the model", NULL },
@@ -1039,11 +1077,14 @@ PyObject * CGM_estimateTime(CGMObject * self, PyObject * args, PyObject * kwargs
 		auto maxV = make_pair(-INFINITY, min_t);
 		if (workers > 1)
 		{
-			ThreadPool pool{ workers };
+			if (!self->pool || self->pool->getNumWorkers() != workers)
+			{
+				self->pool = unique_ptr<ThreadPool>{ new ThreadPool{ workers } };
+			}
 			vector<future<pair<float, float>>> futures;
 			for (float t = min_t; t < max_t; t += step_t)
 			{
-				futures.emplace_back(pool.enqueue([&](size_t, float t)
+				futures.emplace_back(self->pool->enqueue([&](size_t, float t)
 				{
 					float ll = ev(self->inst->normalizedTimePoint(t));
 					return make_pair(ll, t);

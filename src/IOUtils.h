@@ -71,107 +71,112 @@ template<class _Ty> inline void writeToBinStream(std::ostream& os, const _Ty& v)
 template<class _Ty, class _Istream> inline _Ty readFromBinStream(_Istream& is);
 template<class _Ty, class _Istream> inline void readFromBinStream(_Istream& is, _Ty& v);
 
-template<class _Ty>
-inline typename std::enable_if<std::is_fundamental<_Ty>::value || std::is_enum<_Ty>::value>::type writeToBinStreamImpl(std::ostream& os, const _Ty& v)
-{
-	if (!os.write((const char*)&v, sizeof(_Ty))) throw std::ios_base::failure(std::string{ "writing type '" } +typeid(_Ty).name() + "' failed");
-}
+template<typename _Ty, typename = void>
+struct Serializer;
 
-template<class _Ty, class _Istream>
-inline typename std::enable_if<std::is_fundamental<_Ty>::value || std::is_enum<_Ty>::value>::type readFromBinStreamImpl(_Istream& is, _Ty& v)
+template<typename _Ty>
+struct Serializer<_Ty,
+	typename std::enable_if<std::is_fundamental<_Ty>::value || std::is_enum<_Ty>::value>::type>
 {
-	if (!is.read((char*)&v, sizeof(_Ty))) throw std::ios_base::failure(std::string{ "reading type '" } +typeid(_Ty).name() + "' failed");
-}
-
-template<typename _Elem>
-inline void writeToBinStreamImpl(std::ostream& os, const std::basic_string<_Elem>& v)
-{
-	writeToBinStream<uint32_t>(os, v.size());
-	if (!os.write((const char*)&v[0], v.size() * sizeof(_Elem))) throw std::ios_base::failure(std::string{ "writing type '" } +typeid(std::basic_string<_Elem>).name() + "' failed");
-}
-
-template<typename _Elem, class _Istream>
-inline void readFromBinStreamImpl(_Istream& is, std::basic_string<_Elem>& v)
-{
-	v.resize(readFromBinStream<uint32_t>(is));
-	if (!is.read((char*)&v[0], v.size() * sizeof(_Elem))) throw std::ios_base::failure(std::string{ "reading type '" } +typeid(std::basic_string<_Elem>).name() + "' failed");
-}
-
-template<class _Ty1, class _Ty2>
-inline void writeToBinStreamImpl(std::ostream& os, const typename std::pair<_Ty1, _Ty2>& v)
-{
-	writeToBinStream(os, v.first);
-	writeToBinStream(os, v.second);
-}
-
-template<class _Ty1, class _Ty2, class _Istream>
-inline void readFromBinStreamImpl(_Istream& is, typename std::pair<_Ty1, _Ty2>& v)
-{
-	v.first = readFromBinStream<_Ty1>(is);
-	v.second = readFromBinStream<_Ty2>(is);
-}
-
-
-template<class _Ty1, class _Ty2>
-inline void writeToBinStreamImpl(std::ostream& os, const typename std::map<_Ty1, _Ty2>& v)
-{
-	writeToBinStream<uint32_t>(os, v.size());
-	for (auto& p : v)
+	template<typename _Os>
+	void write(_Os&& os, const _Ty& v)
 	{
-		writeToBinStream(os, p);
+		if (!os.write((const char*)&v, sizeof(_Ty))) throw std::ios_base::failure(std::string{ "writing type '" } + typeid(_Ty).name() + "' failed");
 	}
-}
 
-template<class _Ty1, class _Ty2, class _Istream>
-inline void readFromBinStreamImpl(_Istream& is, typename std::map<_Ty1, _Ty2>& v)
-{
-	size_t len = readFromBinStream<uint32_t>(is);
-	v.clear();
-	for (size_t i = 0; i < len; ++i)
+	template<typename _Is>
+	void read(_Is&& is, _Ty& v)
 	{
-		v.emplace(readFromBinStream<std::pair<_Ty1, _Ty2>>(is));
+		if (!is.read((char*)&v, sizeof(_Ty))) throw std::ios_base::failure(std::string{ "reading type '" } + typeid(_Ty).name() + "' failed");
 	}
-}
+};
 
-
-template<class _Ty1>
-inline void writeToBinStreamImpl(std::ostream& os, const typename std::vector<_Ty1>& v)
+template<typename _Ty>
+struct Serializer<std::basic_string<_Ty>>
 {
-	writeToBinStream<uint32_t>(os, v.size());
-	for (auto& p : v)
+	template<typename _Os>
+	void write(_Os&& os, const std::basic_string<_Ty>& v)
 	{
-		writeToBinStream(os, p);
+		writeToBinStream<uint32_t>(os, v.size());
+		if (!os.write((const char*)&v[0], v.size() * sizeof(_Ty))) throw std::ios_base::failure(std::string{ "writing type '" } + typeid(std::basic_string<_Ty>).name() + "' failed");
 	}
-}
 
-template<class _Ty1, class _Istream>
-inline void readFromBinStreamImpl(_Istream& is, typename std::vector<_Ty1>& v)
-{
-	size_t len = readFromBinStream<uint32_t>(is);
-	v.clear();
-	for (size_t i = 0; i < len; ++i)
+	template<typename _Is>
+	void read(_Is&& is, std::basic_string<_Ty>& v)
 	{
-		v.emplace_back(readFromBinStream<_Ty1>(is));
+		v.resize(readFromBinStream<uint32_t>(is));
+		if (!is.read((char*)&v[0], v.size() * sizeof(_Ty))) throw std::ios_base::failure(std::string{ "reading type '" } + typeid(std::basic_string<_Ty>).name() + "' failed");
 	}
-}
+};
 
-template<typename _Ty1, int _Rows, int _Cols>
-inline void writeToBinStreamImpl(std::ostream& os, const typename Eigen::Matrix<_Ty1, _Rows, _Cols>& v)
-{
-	for (size_t i = 0; i < v.size(); ++i)
-	{
-		writeToBinStream(os, v.data()[i]);
-	}
-}
 
-template<typename _Ty1, int _Rows, int _Cols, class _Istream>
-inline void readFromBinStreamImpl(_Istream& is, typename Eigen::Matrix<_Ty1, _Rows, _Cols>& v)
+template<typename _Ty>
+struct Serializer<std::vector<_Ty>>
 {
-	for (size_t i = 0; i < v.size(); ++i)
+	template<typename _Os>
+	void write(_Os&& os, const std::vector<_Ty>& v)
 	{
-		readFromBinStream(is, v.data()[i]);
+		writeToBinStream<uint32_t>(os, v.size());
+		for (auto& p : v)
+		{
+			writeToBinStream(os, p);
+		}
 	}
-}
+
+	template<typename _Is>
+	void read(_Is&& is, std::vector<_Ty>& v)
+	{
+		size_t len = readFromBinStream<uint32_t>(is);
+		v.clear();
+		for (size_t i = 0; i < len; ++i)
+		{
+			v.emplace_back(readFromBinStream<_Ty>(is));
+		}
+	}
+};
+
+template<typename _Ty1, typename _Ty2>
+struct Serializer<std::pair<_Ty1, _Ty2>>
+{
+	template<typename _Os>
+	void write(_Os&& os, const std::pair<_Ty1, _Ty2>& v)
+	{
+		writeToBinStream(os, v.first);
+		writeToBinStream(os, v.second);
+	}
+
+	template<typename _Is>
+	void read(_Is&& is, std::pair<_Ty1, _Ty2>& v)
+	{
+		readFromBinStream(is, v.first);
+		readFromBinStream(is, v.second);
+	}
+};
+
+template<typename _Ty1, typename _Ty2>
+struct Serializer<std::map<_Ty1, _Ty2>>
+{
+	template<typename _Os>
+	void write(_Os&& os, const std::map<_Ty1, _Ty2>& v)
+	{
+		writeToBinStream<uint32_t>(os, v.size());
+		for (auto& p : v)
+		{
+			writeToBinStream(os, p);
+		}
+	}
+
+	template<typename _Is>
+	void read(_Is&& is, std::map<_Ty1, _Ty2>& v)
+	{
+		size_t len = readFromBinStream<uint32_t>(is);
+		v.clear();
+		for (size_t i = 0; i < len; ++i)
+		{
+			v.emplace(readFromBinStream<std::pair<_Ty1, _Ty2>>(is));
+		}
+	}
+};
 
 void writeFloatVL(std::ostream& os, float f);
 float readFloatVL(std::istream& is);
@@ -198,7 +203,7 @@ inline void readFromBinStreamCompressed(_Istream& is, typename Eigen::Matrix<_Ty
 template<class _Ty>
 inline void writeToBinStream(std::ostream& os, const _Ty& v)
 {
-	writeToBinStreamImpl(os, v);
+	Serializer<typename std::remove_reference<_Ty>::type>().write(os, v);
 }
 
 
@@ -206,12 +211,12 @@ template<class _Ty, class _Istream>
 inline _Ty readFromBinStream(_Istream& is)
 {
 	_Ty v;
-	readFromBinStreamImpl(is, v);
+	Serializer<typename std::remove_reference<_Ty>::type>().read(is, v);
 	return v;
 }
 
 template<class _Ty, class _Istream>
 inline void readFromBinStream(_Istream& is, _Ty& v)
 {
-	readFromBinStreamImpl(is, v);
+	Serializer<typename std::remove_reference<_Ty>::type>().read(is, v);
 }

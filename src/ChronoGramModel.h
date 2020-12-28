@@ -104,6 +104,21 @@ public:
 		std::vector<float> lls;
 	};
 
+	struct alignas(4) HyperParameter
+	{
+		uint32_t dimension = 100;
+		uint32_t order = 6;
+		float subsampling = 1e-4f;
+		float temporalSubsampling = 1;
+		uint32_t negativeSamples = 5;
+		uint32_t temporalNegativeSamples = 5;
+		float eta = 1;
+		float zeta = .1f;
+		float lambda = .1f;
+		uint32_t subwordGrams = 0;
+		uint32_t subwordDropoutRemain = 5;
+	};
+
 private:
 	struct ThreadLocalData
 	{
@@ -125,24 +140,21 @@ private:
 	Eigen::MatrixXf in; // (D, R * V)
 	Eigen::MatrixXf subwordIn; // (D, R * SV)
 	Eigen::MatrixXf out; // (D, V)
-	size_t D; // dimension of word vector
-	size_t R; // order of Lengendre polynomial
-	float subsampling;
+
+	HyperParameter hp;
 	float zBias = 0, zSlope = 1;
-	float zeta = .5f, lambda = .1f;
 
 	float timePadding = 0;
 	float timePriorScale = 1;
 	Eigen::VectorXf timePrior; // (R, 1)
 	Eigen::VectorXf vEta;
 
-	float tpvThreshold = 0.25f, tpvBias = 0.0625f;
+	float tpvThreshold = 0.125f, tpvBias = 0.0625f;
 
 	size_t totalWords = 0, totalTimePoints = 0;
 	size_t procWords = 0, lastProcWords = 0, procTimePoints = 0;
 	size_t totalLLCnt = 0, timeLLCnt = 0;
 	double totalLL = 0, ugLL = 0, timeLL = 0;
-	size_t subwordGrams = 0, subwordDropoutRemain = 3;
 
 	ThreadLocalData globalData;
 	WordDictionary<> vocabs, subwordVocabs;
@@ -151,7 +163,6 @@ private:
 	std::discrete_distribution<uint32_t> unigramTable;
 	std::vector<uint32_t> subwordTable;
 	std::vector<size_t> subwordTablePtrs;
-	size_t negativeSampleSize = 0, temporalSample = 0;
 
 	Timer timer;
 
@@ -195,18 +206,17 @@ private:
 	float getWordProbByTime(uint32_t w, const Eigen::VectorXf& timedVector, const Eigen::VectorXf& coef, float tPrior) const;
 	float getWordProbByTime(uint32_t w, float timePoint) const;
 public:
-	ChronoGramModel(size_t _D = 100, size_t _R = 6,
-		float _subsampling = 1e-4f, size_t _negativeSampleSize = 5, size_t _timeNegativeSample = 5,
-		float _eta = 1.f, float _zeta = .1f, float _lambda = .1f, size_t _subwordGrams = 0,
-		size_t seed = std::random_device()())
-		: D(_D), R(_R), subsampling(_subsampling), zeta(_zeta), lambda(_lambda),
-		vEta(Eigen::VectorXf::Constant(_R, _eta)),
-		negativeSampleSize(_negativeSampleSize), temporalSample(_timeNegativeSample), subwordGrams(_subwordGrams)
+	ChronoGramModel()
+	{
+	}
+
+	ChronoGramModel(const HyperParameter& _hp, size_t seed = std::random_device()())
+		: hp(_hp), vEta(Eigen::VectorXf::Constant(_hp.order, _hp.eta))
 	{
 		globalData.rg = std::mt19937_64{ seed };
 
 		vEta[0] = 1;
-		timePadding = .25f / R;
+		timePadding = .25f / _hp.order;
 	}
 
 	ChronoGramModel(ChronoGramModel&& o) = default;
@@ -289,14 +299,10 @@ public:
 	float getWordProbByTime(const std::string& word, float timePoint) const;
 	float getTimePrior(float timePoint) const;
 
-	size_t getR() const { return R; }
-	size_t getD() const { return D; }
+	const HyperParameter& getHP() const { return hp; }
 
 	size_t getTotalWords() const;
 	size_t getWordCount(const std::string& word) const;
-
-	float getZeta() const { return zeta; }
-	float getLambda() const { return lambda; }
 
 	void setPadding(float padding) { timePadding = padding; }
 	float getPadding() const { return timePadding; }
@@ -305,4 +311,43 @@ public:
 	float getTPBias() const { return tpvBias; }
 	void setTPThreshold(float _tpvThreshold) { tpvThreshold = _tpvThreshold; }
 	float getTPThreshold() const { return tpvThreshold; }
+};
+
+
+template<typename _Ty, int _Rows, int _Cols>
+struct Serializer<Eigen::Matrix<_Ty, _Rows, _Cols>>
+{
+	template<typename _Os>
+	void write(_Os&& os, const Eigen::Matrix<_Ty, _Rows, _Cols>& v)
+	{
+		for (size_t i = 0; i < v.size(); ++i)
+		{
+			writeToBinStream(os, v.data()[i]);
+		}
+	}
+
+	template<typename _Is>
+	void read(_Is&& is, Eigen::Matrix<_Ty, _Rows, _Cols>& v)
+	{
+		for (size_t i = 0; i < v.size(); ++i)
+		{
+			readFromBinStream(is, v.data()[i]);
+		}
+	}
+};
+
+template<>
+struct Serializer<ChronoGramModel::HyperParameter>
+{
+	template<typename _Os>
+	void write(_Os&& os, const ChronoGramModel::HyperParameter& v)
+	{
+		os.write((const char*)&v, sizeof(v));
+	}
+
+	template<typename _Is>
+	void read(_Is&& is, ChronoGramModel::HyperParameter& v)
+	{
+		is.read((char*)&v, sizeof(v));
+	}
 };
