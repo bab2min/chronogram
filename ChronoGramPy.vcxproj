@@ -131,7 +131,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python37\include;$(IncludePath)</IncludePath>
+    <IncludePath>C:\Users\Administrator\AppData\Local\Programs\Python\Python37\Lib\site-packages\numpy\core\include;C:\Users\Administrator\AppData\Local\Programs\Python\Python37\include;E:\AddInclude\;$(IncludePath)</IncludePath>
     <TargetExt>.pyd</TargetExt>
     <TargetName>_chronogram</TargetName>
   </PropertyGroup>
@@ -148,7 +148,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>E:\eigen\;C:\Users\Administrator\AppData\Local\Programs\Python\Python36\include;$(IncludePath)</IncludePath>
+    <IncludePath>C:\Users\Administrator\AppData\Local\Programs\Python\Python37\Lib\site-packages\numpy\core\include;C:\Users\Administrator\AppData\Local\Programs\Python\Python37\include;E:\AddInclude\;$(IncludePath)</IncludePath>
     <TargetExt>.pyd</TargetExt>
     <LibraryPath>C:\Users\Administrator\AppData\Local\Programs\Python\Python36\libs;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
@@ -262,7 +262,6 @@
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
-      <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>

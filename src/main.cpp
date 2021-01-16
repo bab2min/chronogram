@@ -37,7 +37,9 @@ struct Args
 	float initEpochs = 0, epoch = 1, threshold = 0.0025f;
 	float timePrior = 0;
 	float subsampling = 1e-4f, temporalSubsampling = 1;
-	float lr = 0.025f;
+	float lr = 0.025f, weightDecay = 0, subwordWeightDecay = 0, orderDecay = 0;
+	float tnsWeight = 0, ugWeight = 0;
+	int decayInterval = 0;
 	bool compressed = true;
 	bool recountVocabs = false;
 	bool semEval = false;
@@ -51,6 +53,9 @@ struct Args
 
 int main(int argc, char* argv[])
 {
+#ifdef _WIN32
+	SetConsoleOutputCP(65001);
+#endif
 	Args args;
 	try
 	{
@@ -76,10 +81,16 @@ int main(int argc, char* argv[])
 			("report", "", cxxopts::value<int>())
 			("eta", "", cxxopts::value<float>())
 			("z,zeta", "", cxxopts::value<float>())
+			("tnsWeight", "", cxxopts::value<float>())
+			("ugWeight", "", cxxopts::value<float>())
 			("lambda", "", cxxopts::value<float>())
 			("p,padding", "", cxxopts::value<float>())
 			("ss", "Subsamping", cxxopts::value<float>())
 			("tss", "Temporal Subsamping", cxxopts::value<float>())
+			("wdi", "weight decay interval", cxxopts::value<int>())
+			("wd", "weight decay", cxxopts::value<float>())
+			("od", "order decay", cxxopts::value<float>())
+			("swd", "subword weight decay", cxxopts::value<float>())
 			("subword", "size of subword ngram", cxxopts::value<int>())
 			("sdr", "subword dropout remain", cxxopts::value<int>())
 			("rv", "recount vocabs", cxxopts::value<int>()->implicit_value("1"))
@@ -190,6 +201,12 @@ int main(int argc, char* argv[])
 			READ_OPT(threshold, float);
 			READ_OPT(timePrior, float);
 			READ_OPT(lr, float);
+			READ_OPT2(wd, weightDecay, float);
+			READ_OPT2(od, orderDecay, float);
+			READ_OPT2(swd, subwordWeightDecay, float);
+			READ_OPT2(wdi, decayInterval, int);
+			READ_OPT(tnsWeight, float);
+			READ_OPT(ugWeight, float);
 
 			READ_OPT(evalShift, string);
 			READ_OPT(timeA, float);
@@ -221,15 +238,20 @@ int main(int argc, char* argv[])
 	ChronoGramModel::HyperParameter hp;
 	hp.dimension = args.dimension;
 	hp.order = args.order;
-	hp.negativeSample = args.negative;
-	hp.temporalNegativeSample = args.temporalSample;
+	hp.negativeSamples = args.negative;
+	hp.temporalNegativeSamples = args.temporalSample;
 	hp.eta = args.eta;
 	hp.zeta = args.zeta;
 	hp.lambda = args.lambda;
 	hp.subsampling = args.subsampling;
+	hp.weightDecay = args.weightDecay;
+	hp.subwordWeightDecay = args.subwordWeightDecay;
+	hp.weightDecayInterval = args.decayInterval;
 	hp.temporalSubsampling = args.temporalSubsampling;
 	hp.subwordGrams = args.subword;
 	hp.subwordDropoutRemain = args.sdr;
+	hp.tnsWeight = args.tnsWeight;
+	hp.ugWeight = args.ugWeight;
 	ChronoGramModel tgm{ hp };
 	if (args.padding >= 0)
 	{
@@ -300,7 +322,7 @@ int main(int argc, char* argv[])
 		if (args.vocab.empty())
 		{
 			tgm.buildVocab(MultipleReader::factory(args.input), args.minCnt, args.worker);
-			cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size()
+			cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.usedVocabSize()
 				<< "\tTotal Words: " << tgm.getTotalWords() << endl;
 		}
 		else
@@ -318,7 +340,7 @@ int main(int argc, char* argv[])
 				return make_pair(w, cnt);
 			}, args.minT, args.maxT);
 
-			cout << "Vocab Size: " << tgm.getVocabs().size() << endl;
+			cout << "Vocab Size: " << tgm.usedVocabSize() << endl;
 			cout << "Subword Vocab Size: " << tgm.getSubwordVocabs().size() << endl;
 			cout << "Subword Dropout Remain: " << tgm.getHP().subwordDropoutRemain << endl;
 			if (args.recountVocabs)

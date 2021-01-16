@@ -9,24 +9,11 @@ template<class KeyType = std::string, class ValueType = int32_t>
 class WordDictionary
 {
 protected:
-	std::map<KeyType, ValueType> word2id;
+	std::unordered_map<KeyType, ValueType> word2id;
 	std::vector<KeyType> id2word;
 public:
 
-	WordDictionary() {}
-	WordDictionary(const WordDictionary& o) : word2id(o.word2id), id2word(o.id2word) {}
-	WordDictionary(WordDictionary&& o)
-	{
-		std::swap(word2id, o.word2id);
-		std::swap(id2word, o.id2word);
-	}
-
-	WordDictionary& operator=(WordDictionary&& o)
-	{
-		std::swap(word2id, o.word2id);
-		std::swap(id2word, o.id2word);
-		return *this;
-	}
+	WordDictionary() = default;
 
 	enum { npos = (ValueType)-1 };
 	ValueType add(const KeyType& str)
@@ -86,6 +73,17 @@ public:
 		{
 			word2id[id2word[i]] = i;
 		}
+	}
+
+	void truncate(size_t n) 
+	{
+		if (n >= id2word.size()) return;
+
+		for (size_t i = n; i < id2word.size(); ++i)
+		{
+			word2id.erase(id2word[i]);
+		}
+		id2word.erase(id2word.begin() + n, id2word.end());
 	}
 
 	const std::vector<KeyType>& getKeys() const { return id2word; }

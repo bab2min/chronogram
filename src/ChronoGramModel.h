@@ -57,9 +57,7 @@ public:
 	class LLEvaluater
 	{
 		friend class ChronoGramModel;
-		float timePriorWeight;
-		size_t windowLen, nsQ;
-		std::vector<uint32_t> wordIds;
+
 		struct MixedVectorCoef
 		{
 			size_t n = 0;
@@ -68,27 +66,32 @@ public:
 
 			const float* get(uint32_t id, size_t nsQ, size_t R) const
 			{
-				if(nsQ && id % nsQ == n) return &dataVec[id / nsQ * R];
+				if (nsQ && id % nsQ == n) return &dataVec[id / nsQ * R];
 				auto it = dataMap.find(id);
 				if (it != dataMap.end()) return &it->second[0];
 				return nullptr;
 			}
 		};
 
-		std::unordered_map<uint32_t, MixedVectorCoef> coefs;
 		const ChronoGramModel& tgm;
+		size_t windowLen, nsQ;
+		float timePriorWeight;
+
+		std::vector<uint32_t> wordIds;
+		std::unordered_map<uint32_t, MixedVectorCoef> coefs;
+		std::unordered_map<uint32_t, std::vector<float>> ugCoefs;
+		std::vector<std::vector<uint32_t>> subwordTables;
 		std::function<float(float)> timePrior;
-		LLEvaluater(const ChronoGramModel& _tgm, size_t _windowLen,
-			size_t _nsQ, std::vector<uint32_t>&& _wordIds, 
-			std::unordered_map<uint32_t, MixedVectorCoef>&& _coefs,
-			const std::function<float(float)>& _timePrior,
-			float _timePriorWeight)
-			: windowLen(_windowLen), nsQ(_nsQ),
-			wordIds(_wordIds), coefs(_coefs), tgm(_tgm),
-			timePrior(_timePrior), timePriorWeight(_timePriorWeight)
+
+		LLEvaluater(const ChronoGramModel& _tgm, size_t _windowLen = 0,
+			size_t _nsQ = 0, float _timePriorWeight = 0)
+			: tgm(_tgm), windowLen(_windowLen), nsQ(_nsQ), timePriorWeight(_timePriorWeight)
 		{}
 
 	public:
+		LLEvaluater(const LLEvaluater&) = default;
+		LLEvaluater(LLEvaluater&&) = default;
+
 		float operator()(float normalizedTimePoint) const;
 		std::tuple<float, float> fg(float normalizedTimePoint) const;
 	};
@@ -115,8 +118,14 @@ public:
 		float eta = 1;
 		float zeta = .1f;
 		float lambda = .1f;
+		uint32_t weightDecayInterval = 0;
+		float orderDecay = 0;
+		float weightDecay = 0;
 		uint32_t subwordGrams = 0;
 		uint32_t subwordDropoutRemain = 5;
+		float subwordWeightDecay = 0;
+		float tnsWeight = 0;
+		float ugWeight = 0;
 	};
 
 private:
@@ -140,6 +149,7 @@ private:
 	Eigen::MatrixXf in; // (D, R * V)
 	Eigen::MatrixXf subwordIn; // (D, R * SV)
 	Eigen::MatrixXf out; // (D, V)
+	Eigen::MatrixXf ugOut; // (D, V)
 
 	HyperParameter hp;
 	float zBias = 0, zSlope = 1;
@@ -149,7 +159,7 @@ private:
 	Eigen::VectorXf timePrior; // (R, 1)
 	Eigen::VectorXf vEta;
 
-	float tpvThreshold = 0.125f, tpvBias = 0.0625f;
+	float tpvThreshold = 0.125f, tpvBias = 0.03125f;
 
 	size_t totalWords = 0, totalTimePoints = 0;
 	size_t procWords = 0, lastProcWords = 0, procTimePoints = 0;
@@ -163,6 +173,7 @@ private:
 	std::discrete_distribution<uint32_t> unigramTable;
 	std::vector<uint32_t> subwordTable;
 	std::vector<size_t> subwordTablePtrs;
+	Eigen::ArrayXf inDecay, outDecay, subwordInDecay;
 
 	Timer timer;
 
@@ -170,14 +181,21 @@ private:
 	static Eigen::VectorXf makeDCoef(size_t R, float z);
 	const Eigen::VectorXf& makeTimedVector(size_t wv, const Eigen::VectorXf& coef) const;
 	const Eigen::VectorXf& makeTimedVectorDropout(size_t wv, const Eigen::VectorXf& coef, const std::vector<uint32_t>& subwords) const;
+	const Eigen::VectorXf& makeSubwordTimedVector(const std::vector<uint32_t>& swv, const Eigen::VectorXf& coef) const;
 
-	template<bool _Initialization = false>
-	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords);
+	std::vector<uint32_t> getSubwordIds(const std::string& s) const;
 
-	template<bool _Initialization = false>
-	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
+	template<bool _initialization = false, bool _use_ug = false>
+	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, 
+		const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords
+	);
+
+	template<bool _initialization = false, bool _use_ug = false>
+	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, 
+		const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
-		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad);
+		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad
+	);
 
 	float inplaceTimeUpdate(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
 		const std::vector<const Eigen::VectorXf*>& randSampleWeight);
@@ -191,6 +209,9 @@ private:
 	void buildTable();
 	void buildSubwordTable();
 
+	template<bool _multi>
+	void updateWeightDecay(float lr, std::mutex* mtxIn, std::mutex* mtxSubwordIn, std::mutex* mtxOut, size_t hashSize);
+
 	template<bool _Initialization = false, bool _GNgramMode = false>
 	TrainResult trainVectors(const uint32_t* ws, size_t N, float timePoint,
 		size_t windowLen, float lr);
@@ -199,6 +220,7 @@ private:
 	TrainResult trainVectorsMulti(const uint32_t* ws, size_t N, float timePoint,
 		size_t windowLen, float lr, ThreadLocalData& ld,
 		std::mutex* mtxIn, std::mutex* mtxSubwordIn, std::mutex* mtxOut, size_t hashSize);
+
 	void trainTimePrior(const float* ts, size_t N, float lr, size_t report);
 	void normalizeWordDist(bool updateVocab = true, ThreadPool* pool = nullptr);
 
@@ -223,12 +245,12 @@ public:
 
 	ChronoGramModel& operator=(ChronoGramModel&& o) = default;
 
-	void buildVocab(const std::function<ResultReader()>& reader, size_t minCnt = 10, size_t numWorkers = 0);
+	void buildVocab(const std::function<ResultReader()>& reader, size_t minCnt = 10, size_t minCntForSubword = 5, size_t numWorkers = 0);
 	size_t recountVocab(const std::function<ResultReader()>& reader, float minT, float maxT, size_t numWorkers);
 	size_t recountVocab(const std::function<GNgramResultReader()>& reader, float minT, float maxT, size_t numWorkers);
 	bool addFixedWord(const std::string& word);
 
-	void buildVocabFromDict(const std::function<std::pair<std::string, uint64_t>()>& reader, float minT, float maxT);
+	void buildVocabFromDict(const std::function<std::pair<std::string, uint64_t>()>& reader, float minT, float maxT, size_t vocabSize = -1);
 
 	using ReportCallback = std::function<bool(size_t, float, float, float, float, float)>;
 
@@ -263,7 +285,9 @@ public:
 	float similarityStatic(const std::string& word1, const std::string& word2) const;
 
 	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen,
-		size_t nsQ = 16, const std::function<float(float)>& timePrior = {}, float timePriorWeight = 0) const;
+		size_t nsQ = 16, const std::function<float(float)>& timePrior = {}, float timePriorWeight = 0,
+		bool estimateSubword = false) const;
+
 	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, 
 		size_t windowLen, size_t nsQ = 16, const std::function<float(float)>& timePrior = {}, float timePriorWeight = 0,
 		size_t initStep = 8, float threshold = .0025f, std::vector<float>* llOutput = nullptr) const;
@@ -272,6 +296,8 @@ public:
 		const std::function<void(EvalResult)>& writer,
 		size_t numWorkers, size_t windowLen, size_t nsQ, const std::function<float(float)>& timePrior, float timePriorWeight,
 		size_t initStep, float threshold) const;
+
+	size_t usedVocabSize() const { return frequencies.size(); }
 
 	const std::vector<std::string>& getVocabs() const
 	{
@@ -342,12 +368,30 @@ struct Serializer<ChronoGramModel::HyperParameter>
 	template<typename _Os>
 	void write(_Os&& os, const ChronoGramModel::HyperParameter& v)
 	{
+		writeToBinStream(os, (uint32_t)sizeof(v));
 		os.write((const char*)&v, sizeof(v));
 	}
 
 	template<typename _Is>
 	void read(_Is&& is, ChronoGramModel::HyperParameter& v)
 	{
-		is.read((char*)&v, sizeof(v));
+		size_t s = readFromBinStream<uint32_t>(is);
+		v = {};
+		is.read((char*)&v, s);
 	}
 };
+
+template<bool _lock>
+class optional_lock
+{
+public:
+	optional_lock(const std::mutex&) {}
+};
+
+template<>
+class optional_lock<true> : public std::lock_guard<std::mutex>
+{
+public:
+	using std::lock_guard<std::mutex>::lock_guard;
+};
+
