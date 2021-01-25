@@ -103,6 +103,14 @@ struct CGMObject
 
 	static PyObject* getVocabs(CGMObject *self, void* closure);
 	static PyObject* getSubwordVocabs(CGMObject* self, void* closure);
+
+	void initPool(size_t workers)
+	{
+		if (!pool || pool->getNumWorkers() != workers)
+		{
+			pool = unique_ptr<ThreadPool>{ new ThreadPool{ workers } };
+		}
+	}
 };
 
 struct CGVObject
@@ -189,23 +197,59 @@ struct CGEObject
 
 	static PyObject* call(CGEObject *self, PyObject *args, PyObject *kwargs)
 	{
-		float time;
-		static const char* kwlist[] = { "time", nullptr };
-		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "f", (char**)kwlist,
-			&time)) return nullptr;
+		PyObject* x;
+		size_t workers = 0;
+		static const char* kwlist[] = { "time", "workers", nullptr };
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|n", (char**)kwlist,
+			&x, &workers)) return nullptr;
 		try
 		{
-			time = self->parentObj->inst->normalizedTimePoint(time);
-			if (time < 0 || time > 1)
+			if (PyFloat_Check(x))
 			{
-				char buf[256];
-				snprintf(buf, 256, "'time' is out of time range [%g, %g]",
-					self->parentObj->inst->getMinPoint(),
-					self->parentObj->inst->getMaxPoint());
-				PyErr_SetString(PyExc_Exception, buf);
-				return nullptr;
+				float time = PyFloat_AsDouble(x);
+				time = self->parentObj->inst->normalizedTimePoint(time);
+				if (time < 0 || time > 1)
+				{
+					char buf[256];
+					snprintf(buf, 256, "`time` is out of time range [%g, %g]",
+						self->parentObj->inst->getMinPoint(),
+						self->parentObj->inst->getMaxPoint());
+					PyErr_SetString(PyExc_Exception, buf);
+					return nullptr;
+				}
+				return py::buildPyValue(self->inst->operator()(time));
 			}
-			return py::buildPyValue(self->inst->operator()(time));
+			else
+			{
+				auto time = py::toCpp<vector<float>>(x, "cannot convert `time` into a list of floats");
+				if (!workers) workers = thread::hardware_concurrency();
+				self->parentObj->initPool(workers);
+				for (auto& t : time)
+				{
+					t = self->parentObj->inst->normalizedTimePoint(t);
+					if (t < 0 || t > 1)
+					{
+						char buf[256];
+						snprintf(buf, 256, "`time` is out of time range [%g, %g]",
+							self->parentObj->inst->getMinPoint(),
+							self->parentObj->inst->getMaxPoint());
+						PyErr_SetString(PyExc_Exception, buf);
+						return nullptr;
+					}
+				}
+
+				vector<future<float>> futures;
+				for (auto& t : time)
+				{
+					futures.emplace_back(self->parentObj->pool->enqueue([&, t](size_t)
+					{
+						return self->inst->operator()(t);
+					}));
+				}
+				vector<float> ret;
+				for (auto& f : futures) ret.emplace_back(f.get());
+				return py::buildPyValue(ret);
+			}
 		}
 		catch (const bad_exception&)
 		{
@@ -1111,10 +1155,7 @@ PyObject * CGM_estimateTime(CGMObject * self, PyObject * args, PyObject * kwargs
 		auto maxV = make_pair(-INFINITY, min_t);
 		if (workers > 1)
 		{
-			if (!self->pool || self->pool->getNumWorkers() != workers)
-			{
-				self->pool = unique_ptr<ThreadPool>{ new ThreadPool{ workers } };
-			}
+			self->initPool(workers);
 			vector<future<pair<float, float>>> futures;
 			const size_t stride = self->pool->getNumWorkers() * 2;
 			for (size_t i = 0; i < stride; ++i)

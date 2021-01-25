@@ -47,7 +47,7 @@ public:
 	{
 		uint32_t vocab = id2word.size();
 		str.write((const char*)&vocab, 4);
-		for (auto w : id2word)
+		for (auto& w : id2word)
 		{
 			uint32_t len = w.size();
 			str.write((const char*)&len, 4);

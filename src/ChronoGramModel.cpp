@@ -1841,7 +1841,6 @@ void ChronoGramModel::saveModel(ostream & os, bool compressed) const
 {
 	os.write("CHGR", 4);
 	writeToBinStream(os, (uint32_t)(compressed ? 4 : 3));
-	writeToBinStream(os, (uint32_t)sizeof(hp));
 	writeToBinStream(os, hp);
 	writeToBinStream(os, zBias);
 	writeToBinStream(os, zSlope);
@@ -1849,6 +1848,11 @@ void ChronoGramModel::saveModel(ostream & os, bool compressed) const
 	cvocabs.truncate(usedVocabSize());
 	cvocabs.writeToFile(os);
 	writeToBinStream(os, frequencies);
+
+	subwordVocabs.writeToFile(os);
+	writeToBinStream(os, subwordTable);
+	writeToBinStream(os, subwordTablePtrs);
+
 	if (compressed)
 	{
 		writeToBinStreamCompressed(os, in);
@@ -1869,10 +1873,6 @@ void ChronoGramModel::saveModel(ostream & os, bool compressed) const
 			writeToBinStream(os, ugOut);
 		}
 	}
-	
-	subwordVocabs.writeToFile(os);
-	writeToBinStream(os, subwordTable);
-	writeToBinStream(os, subwordTablePtrs);
 
 	writeToBinStream(os, timePadding);
 	writeToBinStream(os, timePrior);
@@ -1923,18 +1923,21 @@ ChronoGramModel ChronoGramModel::loadModel(_Istream & is)
 		}
 		else if (version <= 4)
 		{
-			uint32_t hpSize = readFromBinStream<uint32_t>(is);
-			HyperParameter hp;
-			is.read((char*)&hp, hpSize);
-			ChronoGramModel ret(hp);
+			ChronoGramModel ret(readFromBinStream<HyperParameter>(is));
 			ret.zBias = readFromBinStream<float>(is);
 			ret.zSlope = readFromBinStream<float>(is);
 			ret.vocabs.readFromFile(is);
 			size_t V = ret.vocabs.size();
+			readFromBinStream(is, ret.frequencies);
+
+			ret.subwordVocabs.readFromFile(is);
+			readFromBinStream(is, ret.subwordTable);
+			readFromBinStream(is, ret.subwordTablePtrs);
+
 			ret.in.resize(ret.hp.dimension, ret.hp.order * V);
 			ret.out.resize(ret.hp.dimension, V);
+			ret.subwordIn.resize(ret.hp.dimension, ret.hp.order * ret.subwordVocabs.size());
 
-			readFromBinStream(is, ret.frequencies);
 			if (version == 3)
 			{
 				readFromBinStream(is, ret.in);
@@ -1957,9 +1960,7 @@ ChronoGramModel ChronoGramModel::loadModel(_Istream & is)
 					readFromBinStreamCompressed(is, ret.ugOut);
 				}
 			}
-			ret.subwordVocabs.readFromFile(is);
-			readFromBinStream(is, ret.subwordTable);
-			readFromBinStream(is, ret.subwordTablePtrs);
+			
 			readFromBinStream(is, ret.timePadding);
 			ret.timePrior.resize(ret.hp.order);
 			readFromBinStream(is, ret.timePrior);
