@@ -50,6 +50,7 @@
   <ItemGroup>
     <None Include="chronogram\__init__.py" />
     <None Include="setup.py" />
+    <None Include="x64\ReleaseSIMD\pyTest.py" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>

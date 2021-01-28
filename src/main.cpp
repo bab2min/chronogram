@@ -39,6 +39,7 @@ struct Args
 	float subsampling = 1e-4f, temporalSubsampling = 1;
 	float lr = 0.025f, weightDecay = 0, subwordWeightDecay = 0, orderDecay = 0;
 	float tnsWeight = 0, ugWeight = 0;
+	float dropout = 0;
 	int decayInterval = 0;
 	bool compressed = true;
 	bool recountVocabs = false;
@@ -95,6 +96,7 @@ int main(int argc, char* argv[])
 			("sdr", "subword dropout remain", cxxopts::value<int>())
 			("rv", "recount vocabs", cxxopts::value<int>()->implicit_value("1"))
 			("lr", "", cxxopts::value<float>())
+			("dropout", "", cxxopts::value<float>())
 
 			("compressed", "Save as compressed", cxxopts::value<int>(), "default = 1")
 			("semEval", "Print SemEval2015 Task7 Result", cxxopts::value<int>()->implicit_value("1"))
@@ -207,6 +209,7 @@ int main(int argc, char* argv[])
 			READ_OPT2(wdi, decayInterval, int);
 			READ_OPT(tnsWeight, float);
 			READ_OPT(ugWeight, float);
+			READ_OPT(dropout, float);
 
 			READ_OPT(evalShift, string);
 			READ_OPT(timeA, float);
@@ -252,6 +255,8 @@ int main(int argc, char* argv[])
 	hp.subwordDropoutRemain = args.sdr;
 	hp.tnsWeight = args.tnsWeight;
 	hp.ugWeight = args.ugWeight;
+	hp.dropout = args.dropout;
+
 	ChronoGramModel tgm{ hp };
 	if (args.padding >= 0)
 	{

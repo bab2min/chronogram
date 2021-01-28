@@ -58,6 +58,7 @@
   <ItemGroup>
     <None Include="chronogram\__init__.py" />
     <None Include="setup.py" />
+    <None Include="x64\ReleaseSIMD\pyTest.py" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">

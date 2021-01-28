@@ -78,14 +78,14 @@ struct CGMObject
 			"word_ns", "time_ns", "eta", "zeta", "lambda_v", 
 			"subword_ngram", "subword_dropout_remain", 
 			"weight_decay_interval", "weight_decay", "order_decay", "subword_weight_decay",
-			"tns_weight", "ug_weight",
+			"tns_weight", "ug_weight", "dropout",
 			"seed", nullptr };
-		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|iiffiifffiiifffffi", (char**)kwlist,
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|iiffiifffiiiffffffi", (char**)kwlist,
 			&hp.dimension, &hp.order, &hp.subsampling, &hp.temporalSubsampling,
 			&hp.negativeSamples, &hp.temporalNegativeSamples, 
 			&hp.eta, &hp.zeta, &hp.lambda, &hp.subwordGrams, &hp.subwordDropoutRemain, 
 			&hp.weightDecayInterval, &hp.weightDecay, &hp.orderDecay, &hp.subwordWeightDecay,
-			&hp.tnsWeight, &hp.ugWeight,
+			&hp.tnsWeight, &hp.ugWeight, &hp.dropout,
 			&seed)) return -1;
 		try
 		{
@@ -238,16 +238,23 @@ struct CGEObject
 					}
 				}
 
-				vector<future<float>> futures;
-				for (auto& t : time)
+				vector<future<vector<float>>> futures;
+				size_t chunks = min(time.size(), self->parentObj->pool->getNumWorkers());
+				for (size_t i = 0; i < chunks; ++i)
 				{
-					futures.emplace_back(self->parentObj->pool->enqueue([&, t](size_t)
+					futures.emplace_back(self->parentObj->pool->enqueue([&](size_t, size_t b, size_t e)
 					{
-						return self->inst->operator()(t);
-					}));
+						vector<float> ret;
+						for (size_t n = b; n < e; ++n) ret.emplace_back(self->inst->operator()(time[n]));
+						return ret;
+					}, time.size() * i / chunks, time.size() * (i + 1) / chunks));
 				}
 				vector<float> ret;
-				for (auto& f : futures) ret.emplace_back(f.get());
+				for (auto& f : futures)
+				{
+					auto r = f.get();
+					ret.insert(ret.end(), r.begin(), r.end());
+				}
 				return py::buildPyValue(ret);
 			}
 		}
@@ -751,9 +758,9 @@ PyObject * CGM_train(CGMObject * self, PyObject * args, PyObject * kwargs)
 	if (reportCallback)
 	{
 		if (!PyCallable_Check(reportCallback)) throw runtime_error{ "`report_callback` must be an instance of `Callable[[float]*5, bool]`" };
-		callback = [&](size_t a, float b, float c, float d, float e, float f) -> bool
+		callback = [&](size_t a, float b, float c, float d, float e, float f, float h) -> bool
 		{
-			py::UniqueObj args{ py::buildPyTuple(a, b, c, d, e, f) };
+			py::UniqueObj args{ py::buildPyTuple(a, b, c, d, e, f, h) };
 			py::UniqueObj res{ PyObject_Call(reportCallback, args, nullptr) };
 			if (!res) throw bad_exception{};
 			return py::toCpp<bool>(res);
@@ -858,9 +865,9 @@ PyObject * CGM_trainGN(CGMObject * self, PyObject * args, PyObject * kwargs)
 	if (reportCallback)
 	{
 		if (!PyCallable_Check(reportCallback)) throw runtime_error{ "`report_callback` must be an instance of `Callable[[float]*5, bool]`" };
-		callback = [&](size_t a, float b, float c, float d, float e, float f) -> bool
+		callback = [&](size_t a, float b, float c, float d, float e, float f, float h) -> bool
 		{
-			py::UniqueObj args{ py::buildPyTuple(a, b, c, d, e, f) };
+			py::UniqueObj args{ py::buildPyTuple(a, b, c, d, e, f, h) };
 			py::UniqueObj res{ PyObject_Call(reportCallback, args, nullptr) };
 			if (!res) throw bad_exception{};
 			return py::toCpp<bool>(res);
@@ -1249,12 +1256,12 @@ PyObject* CGM_defaultReportCallback(PyObject*, PyObject* args, PyObject* kwargs)
 	try
 	{
 		size_t steps;
-		float progress, ctxLL, ugLL, lr, timePerKword;
-		static const char* kwlist[] = { "steps", "progress", "ctx_ll", "ug_ll", "lr", "time_per_kword", nullptr };
-		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "nfffff", (char**)kwlist, 
-			&steps, &progress, &ctxLL, &ugLL, &lr, &timePerKword)) return nullptr;
+		float progress, ctxLL, temporalLL, ugLL, lr, timePerKword;
+		static const char* kwlist[] = { "steps", "progress", "ctx_ll", "temporal_ll", "ug_ll", "lr", "time_per_kword", nullptr };
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "nffffff", (char**)kwlist, 
+			&steps, &progress, &ctxLL, &temporalLL, &ugLL, &lr, &timePerKword)) return nullptr;
 
-		return py::buildPyValue(ChronoGramModel::defaultReportCallback(steps, progress, ctxLL, ugLL, lr, timePerKword));
+		return py::buildPyValue(ChronoGramModel::defaultReportCallback(steps, progress, ctxLL, temporalLL, ugLL, lr, timePerKword));
 	}
 	catch (const bad_exception&)
 	{

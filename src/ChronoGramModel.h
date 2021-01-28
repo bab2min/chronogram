@@ -7,6 +7,7 @@
 #include <mutex>
 #include <atomic>
 #include <Eigen/Dense>
+#include <EigenRand/EigenRand>
 #include "ThreadPool.h"
 #include "dictionary.h"
 #include "mathUtils.h"
@@ -36,9 +37,40 @@ struct VocabCounter
 	}
 };
 
+namespace act
+{
+	struct Linear
+	{
+		std::pair<float, float> operator()(float x)
+		{
+			return std::make_pair(x, 1);
+		}
+	};
+
+	struct Sqrt
+	{
+		std::pair<float, float> operator()(float x)
+		{
+			x = std::sqrt(x);
+			return std::make_pair(x, 0.5f / x);
+		}
+	};
+
+	struct Tanh
+	{
+		std::pair<float, float> operator()(float x)
+		{
+			x = std::tanh(x);
+			return std::make_pair(x, 1 - x * x);
+		}
+	};
+}
+
 class ChronoGramModel
 {
 public:
+	using TempAct = act::Linear;
+
 	struct ReadResult
 	{
 		std::vector<std::string> words;
@@ -79,7 +111,7 @@ public:
 
 		std::vector<uint32_t> wordIds;
 		std::unordered_map<uint32_t, MixedVectorCoef> coefs;
-		std::unordered_map<uint32_t, std::vector<float>> ugCoefs;
+		std::unordered_map<uint32_t, Eigen::MatrixXf> ugCoefs;
 		std::vector<std::vector<uint32_t>> subwordTables;
 		std::function<float(float)> timePrior;
 
@@ -126,12 +158,14 @@ public:
 		float subwordWeightDecay = 0;
 		float tnsWeight = 0;
 		float ugWeight = 0;
+		float dropout = 0;
 	};
 
 private:
 	struct ThreadLocalData
 	{
 		std::mt19937_64 rg;
+		Eigen::Rand::Vmt19937_64 vrg;
 		Eigen::MatrixXf updateOutMat;
 		std::unordered_map<uint32_t, uint32_t> updateOutIdx;
 		std::unordered_set<uint32_t> updateOutIdxHash;
@@ -140,7 +174,7 @@ private:
 	struct TrainResult
 	{
 		size_t numWords = 0, numPairs = 0;
-		float ll = 0, llUg = 0;
+		float contextLL = 0, temporalLL = 0, ugLL = 0;
 	};
 
 	std::vector<uint64_t> frequencies; // (V)
@@ -150,6 +184,7 @@ private:
 	Eigen::MatrixXf subwordIn; // (D, R * SV)
 	Eigen::MatrixXf out; // (D, V)
 	Eigen::MatrixXf ugOut; // (D, V)
+	Eigen::VectorXf ugCoef, subwordUgCoef;
 
 	HyperParameter hp;
 	float zBias = 0, zSlope = 1;
@@ -163,8 +198,8 @@ private:
 
 	size_t totalWords = 0, totalTimePoints = 0;
 	size_t procWords = 0, lastProcWords = 0, procTimePoints = 0;
-	size_t totalLLCnt = 0, timeLLCnt = 0;
-	double totalLL = 0, ugLL = 0, timeLL = 0;
+	size_t timeLLCnt = 0;
+	double timeLL = 0;
 
 	ThreadLocalData globalData;
 	WordDictionary<> vocabs, subwordVocabs;
@@ -174,6 +209,7 @@ private:
 	std::vector<uint32_t> subwordTable;
 	std::vector<size_t> subwordTablePtrs;
 	Eigen::ArrayXf inDecay, outDecay, subwordInDecay;
+	Eigen::Rand::BernoulliGen<float> dropoutGen;
 
 	Timer timer;
 
@@ -194,7 +230,8 @@ private:
 	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, 
 		const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
-		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad
+		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad,
+		ThreadLocalData& ld
 	);
 
 	float inplaceTimeUpdate(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
@@ -202,6 +239,14 @@ private:
 	float getTimeUpdateGradient(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
 		const std::vector<const Eigen::VectorXf*>& randSampleWeight,
 		Eigen::Block<Eigen::MatrixXf> grad);
+
+	float inplaceTimeUpdateV2(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
+		const std::vector<const Eigen::VectorXf*>& randSampleWeight);
+
+	template<typename _ActFn>
+	float getTimeUpdateGradientV2(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
+		const std::vector<Eigen::VectorXf>& randSampleWeight,
+		Eigen::MatrixXf& embGrad, float& coefGrad, std::vector<float>& subwordCoefGrad, _ActFn&& act);
 
 	float updateTimePrior(float lr, const Eigen::VectorXf& lWeight, const std::vector<const Eigen::VectorXf*>& randSampleWeight);
 
@@ -236,6 +281,7 @@ public:
 		: hp(_hp), vEta(Eigen::VectorXf::Constant(_hp.order, _hp.eta))
 	{
 		globalData.rg = std::mt19937_64{ seed };
+		globalData.vrg = Eigen::Rand::Vmt19937_64{ seed };
 
 		vEta[0] = 1;
 		timePadding = .25f / _hp.order;
@@ -252,9 +298,9 @@ public:
 
 	void buildVocabFromDict(const std::function<std::pair<std::string, uint64_t>()>& reader, float minT, float maxT, size_t vocabSize = -1);
 
-	using ReportCallback = std::function<bool(size_t, float, float, float, float, float)>;
+	using ReportCallback = std::function<bool(size_t, float, float, float, float, float, float)>;
 
-	static bool defaultReportCallback(size_t steps, float progress, float totalLL, float ugLL, float lr, float timePerKword);
+	static bool defaultReportCallback(size_t steps, float progress, float contextLL, float temporalLL, float ugLL, float lr, float timePerKword);
 
 	template<bool _Initialization = false>
 	void train(const std::function<ResultReader()>& reader, size_t numWorkers = 0,
@@ -271,14 +317,17 @@ public:
 
 	std::vector<std::tuple<std::string, float, float>> nearestNeighbors(const std::string& word, 
 		float wordTimePoint, float searchingTimePoint, float m = 0, size_t K = 10) const;
+	
 	std::vector<std::tuple<std::string, float, float>> mostSimilar(
 		const std::vector<std::pair<std::string, float>>& positiveWords,
 		const std::vector<std::pair<std::string, float>>& negativeWords,
 		float searchingTimePoint, float m = 0, size_t K = 10, bool normalize = false) const;
+
 	std::vector<std::tuple<std::string, float>> mostSimilarStatic(
 		const std::vector<std::string>& positiveWords,
 		const std::vector<std::string>& negativeWords,
 		size_t K = 10) const;
+	
 	std::vector<std::pair<std::string, float>> calcShift(size_t minCnt, float time1, float time2, float m = 0) const;
 	float sumSimilarity(const std::string& src, const std::vector<std::string>& targets, float timePoint, float m) const;
 	float similarity(const std::string& word1, float time1, const std::string& word2, float time2) const;
