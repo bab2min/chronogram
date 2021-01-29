@@ -32,13 +32,6 @@ void ChronoGramModel::buildModel()
 	normalizeWordDist(false);
 	buildTable();
 	buildSubwordTable();
-
-	if (hp.ugWeight > 0)
-	{
-		ugOut = MatrixXf::Zero(hp.dimension, V);
-		ugCoef = VectorXf::Ones(V);
-		subwordUgCoef = VectorXf::Ones(subwordIn.cols());
-	}
 }
 
 void ChronoGramModel::buildTable()
@@ -183,7 +176,7 @@ void ChronoGramModel::buildSubwordTable()
 	vector<size_t> remapper(orderedNgrams.size());
 	for (auto& p : orderedNgrams)
 	{
-		if(subwordVocabs.size() <subwordSize) subwordVocabs.add(p.first);
+		if(subwordVocabs.size() < subwordSize) subwordVocabs.add(p.first);
 		remapper[p.second] = &p - &orderedNgrams[0];
 	}
 
@@ -242,7 +235,6 @@ const VectorXf& ChronoGramModel::makeTimedVector(size_t wv, const VectorXf& coef
 		{
 			m += subwordIn.block(0, subwordTable[p] * hp.order, hp.dimension, hp.order);
 		}
-		if(subwordTablePtrs[wv + 1] > subwordTablePtrs[wv]) m /= subwordTablePtrs[wv + 1] - subwordTablePtrs[wv];
 		if(wv < usedVocabSize()) m += in.block(0, wv * hp.order, hp.dimension, hp.order);
 		return ret = (m * coef);
 	}
@@ -266,7 +258,7 @@ const VectorXf& ChronoGramModel::makeTimedVectorDropout(size_t wv, const Eigen::
 	{
 		m += subwordIn.block(0, p * hp.order, hp.dimension, hp.order);
 	}
-	if (!subwords.empty()) m /= subwords.size();
+	m *= (float)(subwordTablePtrs[wv + 1] - subwordTablePtrs[wv]) / subwords.size();
 	if (wv < usedVocabSize()) m += in.block(0, wv * hp.order, hp.dimension, hp.order);
 	return ret = m * coef;
 }
@@ -282,7 +274,6 @@ const VectorXf& ChronoGramModel::makeSubwordTimedVector(const vector<uint32_t>& 
 		{
 			m += subwordIn.block(0, p * hp.order, hp.dimension, hp.order);
 		}
-		if (!swv.empty()) m /= swv.size();
 		return ret = (m * coef);
 	}
 	else
@@ -309,15 +300,16 @@ vector<uint32_t> ChronoGramModel::getSubwordIds(const std::string& s) const
 	return ret;
 }
 
-template<bool _initialization, bool _use_ug>
+template<bool _initialization>
 float ChronoGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative, const VectorXf& lWeight, const vector<uint32_t>& subwords)
 {
 	thread_local VectorXf inSum, inGrad, dropout;
-	auto outcol = (_use_ug ? ugOut : out).col(y);
+	auto outcol = out.col(y);
 	inSum = _initialization ? in.col(x * hp.order) : makeTimedVectorDropout(x, lWeight, subwords);
 	if (hp.dropout)
 	{
 		dropout = dropoutGen.generateLike(inSum, globalData.vrg);
+		if (dropout.maxCoeff() == 0) dropout.setOnes();
 		inSum.array() *= dropout.array() / (dropout.sum() / dropout.size());
 	}
 	float f = inSum.dot(outcol);
@@ -342,12 +334,12 @@ float ChronoGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative
 	{
 		if (subwords.empty())
 		{
-			if (x < usedVocabSize()) in.block(0, x * hp.order, hp.dimension, hp.order) += inGrad * (lWeight.array() * vEta.array()).matrix().transpose();
+			if (x < usedVocabSize()) in.block(0, x * hp.order, hp.dimension, hp.order) += inGrad * lWeight.transpose();
 		}
 		else
 		{
 			thread_local MatrixXf inGradM;
-			inGradM = inGrad * (lWeight.array() * vEta.array()).matrix().transpose();
+			inGradM = inGrad * lWeight.transpose();
 			if (x < usedVocabSize()) in.block(0, x * hp.order, hp.dimension, hp.order) += inGradM;
 			for (auto p : subwords)
 			{
@@ -358,16 +350,17 @@ float ChronoGramModel::inplaceUpdate(size_t x, size_t y, float lr, bool negative
 	return pr;
 }
 
-template<bool _initialization, bool _use_ug>
+template<bool _initialization>
 float ChronoGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool negative, const VectorXf& lWeight, const vector<uint32_t>& subwords,
 	Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad, Eigen::DenseBase<Eigen::MatrixXf>::ColXpr yGrad, ThreadLocalData& ld)
 {
 	thread_local VectorXf inSum, dropout;
-	auto outcol = (_use_ug ? ugOut : out).col(y);
+	auto outcol = out.col(y);
 	inSum = _initialization ? in.col(x * hp.order) : makeTimedVectorDropout(x, lWeight, subwords);
 	if (hp.dropout)
 	{
 		dropout = dropoutGen.generateLike(inSum, ld.vrg);
+		if (dropout.maxCoeff() == 0) dropout.setOnes();
 		inSum.array() *= dropout.array() / (dropout.sum() / dropout.size());
 	}
 	float f = inSum.dot(outcol);
@@ -389,77 +382,84 @@ float ChronoGramModel::getUpdateGradient(size_t x, size_t y, float lr, bool nega
 }
 
 float ChronoGramModel::inplaceTimeUpdate(size_t x, float lr, const VectorXf& lWeight, const vector<uint32_t>& subwords,
-	const vector<const VectorXf*>& randSampleWeight)
+	const vector<VectorXf>& randSampleWeight)
 {
-	/*
-	s = sum(1 - exp(-|a.Tx|^2/2), x) / t
-	P = (1 - exp(-|a.Tv|^2/2)) / s
-
-	log P = log(1 - exp(-|a.Tv|^2/2)) - log(s)
-	d log(1 - exp(-|a.Tv|^2/2)) / da = 1 / (1 - exp(-|a.Tv|^2/2)) (-exp(-|a.Tv|^2/2)) (-a.Tv) . Tv^T
-		= (a.Tv . Tv^T / (exp(|a.Tv|^2/2) - 1))
-
-	d log(s) / da = d log(s) / ds * ds / da = 1 / s * ds / da
-	ds/da = sum(a.Tx . Tx^T * exp(-|a.Tx|^2/2), x) / t
-	d log P / da = (a.Tv . Tv^T / (exp(|a.Tv|^2/2) - 1)) - sum(a.Tx . Tx^T * exp(-|a.Tx|^2/2)) / sum(1 - exp(-|a.Tx|^2/2), x)
-	*/
-	thread_local VectorXf atv, atv2;
-	atv = makeTimedVectorDropout(x, lWeight, subwords);
-	float pa = max(getTimePrior(lWeight), 1e-5f);
-	float expTerm = exp(atv.squaredNorm() / 2 * hp.lambda * pa);
-	float ll = log(1 - 1 / expTerm + 1e-5f);
-	auto d = atv * lWeight.transpose() / (expTerm - 1 + 1e-5f) * hp.lambda * pa;
+	thread_local VectorXf atv, atv2, dropout;
+	atv = makeTimedVectorDropout(x, lWeight, subwords).topRows(hp.ugPartDimension);
+	if (hp.dropout)
+	{
+		dropout = dropoutGen.generateLike(atv, globalData.vrg);
+		if (dropout.maxCoeff() == 0) dropout.setOnes();
+		atv.array() *= dropout.array() / (dropout.sum() / dropout.size());
+	}
+	auto t = TempAct{}(atv.squaredNorm() / 2);
+	float ll = log(t.first + 1e-12f);
+	auto d = atv * lWeight.transpose() * (t.second / (t.first + 1e-12f));
 	float s = 0;
 	MatrixXf nd = MatrixXf::Zero(hp.dimension, hp.order);
 	for (auto& r : randSampleWeight)
 	{
-		atv2 = makeTimedVectorDropout(x, *r, subwords);
-		float pa = max(getTimePrior(*r), 1e-5f);
-		float expTerm = min(exp(-atv2.squaredNorm() / 2 * hp.lambda * pa), 1.f);
-		nd += atv2 * r->transpose() * expTerm * hp.lambda * pa;
-		s += 1 - expTerm;
+		atv2 = makeTimedVectorDropout(x, r, subwords).topRows(hp.ugPartDimension);
+		if (hp.dropout)
+		{
+			dropout = dropoutGen.generateLike(atv2, globalData.vrg);
+			if (dropout.maxCoeff() == 0) dropout.setOnes();
+			atv2.array() *= dropout.array() / (dropout.sum() / dropout.size());
+		}
+		auto t2 = TempAct{}(atv2.squaredNorm() / 2);
+		nd += atv2 * r.transpose() * t2.second;
+		s += t2.first + 1e-12f;
 	}
-	s = max(s, 1e-5f);
 	ll -= log(s / randSampleWeight.size());
 	if (subwords.empty())
 	{
-		if (x < usedVocabSize()) in.block(0, x * hp.order, hp.dimension, hp.order) -= -(d - nd / s) * lr * hp.zeta;
+		if (x < usedVocabSize()) in.block(0, x * hp.order, hp.ugPartDimension, hp.order) += (d - nd / s) * lr;
 	}
 	else
 	{
 		thread_local MatrixXf g;
-		g = -(d - nd / s) * lr * hp.zeta;
-		if (x < usedVocabSize()) in.block(0, x * hp.order, hp.dimension, hp.order) -= g;
+		g = (d - nd / s) * lr;
+		if (x < usedVocabSize()) in.block(0, x * hp.order, hp.ugPartDimension, hp.order) += g;
 		for (auto p : subwords)
 		{
-			subwordIn.block(0, p * hp.order, hp.dimension, hp.order) += g * ((float)(subwordTablePtrs[x + 1] - subwordTablePtrs[x]) / subwords.size());
+			subwordIn.block(0, p * hp.order, hp.ugPartDimension, hp.order) += g * ((float)(subwordTablePtrs[x + 1] - subwordTablePtrs[x]) / subwords.size());
 		}
 	}
-	return ll * hp.zeta;
+	return ll;
 }
 
 float ChronoGramModel::getTimeUpdateGradient(size_t x, float lr, const VectorXf & lWeight, const vector<uint32_t>& subwords,
-	const vector<const VectorXf*>& randSampleWeight, Block<MatrixXf> grad)
+	const vector<VectorXf>& randSampleWeight, Block<MatrixXf> grad)
 {
-	thread_local VectorXf atv, atv2;
-	atv = makeTimedVectorDropout(x, lWeight, subwords);
-	float pa = max(getTimePrior(lWeight), 1e-5f);
+	thread_local VectorXf atv, atv2, dropout;
+	atv = makeTimedVectorDropout(x, lWeight, subwords).topRows(hp.ugPartDimension);
+	if (hp.dropout)
+	{
+		dropout = dropoutGen.generateLike(atv, globalData.vrg);
+		if (dropout.maxCoeff() == 0) dropout.setOnes();
+		atv.array() *= dropout.array() / (dropout.sum() / dropout.size());
+	}
 	auto t = TempAct{}(atv.squaredNorm() / 2);
-	float ll = log(t.first + 1e-5f);
-	auto d = atv * lWeight.transpose();
+	float ll = log(t.first + 1e-12f);
+	auto d = atv * lWeight.transpose() * (t.second / (t.first + 1e-12));
 	float s = 0;
-	MatrixXf nd = MatrixXf::Zero(hp.dimension, hp.order);
+	MatrixXf nd = MatrixXf::Zero(hp.ugPartDimension, hp.order);
 	for (auto& r : randSampleWeight)
 	{
-		atv2 = makeTimedVectorDropout(x, *r, subwords);
-		auto t2 = TempAct{}(-atv2.squaredNorm() / 2);
-		nd += atv2 * r->transpose() * t2.second;
-		s += t2.first;
+		atv2 = makeTimedVectorDropout(x, r, subwords).topRows(hp.ugPartDimension);
+		if (hp.dropout)
+		{
+			dropout = dropoutGen.generateLike(atv2, globalData.vrg);
+			if (dropout.maxCoeff() == 0) dropout.setOnes();
+			atv2.array() *= dropout.array() / (dropout.sum() / dropout.size());
+		}
+		auto t2 = TempAct{}(atv2.squaredNorm() / 2);
+		nd += atv2 * r.transpose() * t2.second;
+		s += t2.first + 1e-12f;
 	}
-	s = max(s, 1e-5f);
 	ll -= log(s / randSampleWeight.size());
-	grad += (d * (t.second / t.first) - nd / s) * lr * hp.zeta;
-	return ll * hp.zeta;
+	grad.topRows(hp.ugPartDimension) += (d - nd / s) * lr;
+	return ll;
 }
 
 float ChronoGramModel::updateTimePrior(float lr, const VectorXf & lWeight, const vector<const VectorXf*>& randSampleWeight)
@@ -467,7 +467,7 @@ float ChronoGramModel::updateTimePrior(float lr, const VectorXf & lWeight, const
 	thread_local VectorXf nd;
 	float p = timePrior.dot(lWeight);
 	auto t = TempAct{}(p * p / 2);
-	float ll = log(t.first);
+	float ll = log(t.first + 1e-12f);
 	auto d = lWeight * p;
 	float s = 0;
 	nd = VectorXf::Zero(hp.order);
@@ -476,96 +476,10 @@ float ChronoGramModel::updateTimePrior(float lr, const VectorXf & lWeight, const
 		float dot = timePrior.dot(*r);
 		auto t2 = TempAct{}(dot * dot / 2);
 		nd += *r * dot * t2.second;
-		s += t2.first;
+		s += t2.first + 1e-12f;
 	}
-	s = max(s, 1e-5f);
 	ll -= log(s / randSampleWeight.size());
 	timePrior += (d * (t.second / t.first) - nd / s) * lr;
-	if (!timePrior.allFinite())
-	{
-		cerr << p << "  " << t.first << "  " << t.second << endl;
-	}
-	return ll;
-}
-
-float ChronoGramModel::inplaceTimeUpdateV2(size_t x, float lr, const VectorXf& lWeight, const vector<uint32_t>& subwords,
-	const vector<const VectorXf*>& randSampleWeight)
-{
-	return 0;
-}
-
-template<typename _ActFn>
-float ChronoGramModel::getTimeUpdateGradientV2(size_t x, float lr, const VectorXf& lWeight, const vector<uint32_t>& subwords,
-	const vector<VectorXf>& randSampleWeight, MatrixXf& embGrad, float& coefGrad, vector<float>& subwordCoefGrad, _ActFn&& act)
-{
-	thread_local VectorXf embCoef, coefG;
-	thread_local MatrixXf atv, nd, embs;
-
-	atv.resize(hp.dimension, randSampleWeight.size() + 1);
-	embs.resize(hp.dimension, (subwords.size() + 1) * (randSampleWeight.size() + 1));
-	embCoef.resize(subwords.size() + 1);
-	size_t i = 0;
-	if (x < usedVocabSize())
-	{
-		embs.col(i) = in.block(0, x * hp.order, hp.dimension, hp.order) * lWeight;
-		embCoef[i] = ugCoef[x];
-	}
-	else
-	{
-		embs.col(i).setZero();
-		embCoef[i] = 0;
-	}
-	++i;
-	for (auto p : subwords)
-	{
-		embs.col(i) = subwordIn.block(0, p * hp.order, hp.dimension, hp.order) * lWeight / subwords.size();
-		embCoef[i] = subwordUgCoef[p];
-		++i;
-	}
-	atv.col(0) = embs.leftCols(subwords.size() + 1) * embCoef;
-
-	for (auto& r : randSampleWeight)
-	{
-		size_t nsi = &r - randSampleWeight.data();
-		if (x < usedVocabSize())
-		{
-			embs.col(i) = in.block(0, x * hp.order, hp.dimension, hp.order) * r;
-		}
-		else
-		{
-			embs.col(i).setZero();
-		}
-		++i;
-		for (auto p : subwords)
-		{
-			embs.col(i) = subwordIn.block(0, p * hp.order, hp.dimension, hp.order) * r / subwords.size();
-			++i;
-		}
-		atv.col(nsi + 1) = embs.middleCols((nsi + 1) * (subwords.size() + 1), subwords.size() + 1) * embCoef;
-	}
-	
-	auto t = act(atv.col(0).squaredNorm() / 2);
-	float ll = log(t.first);
-	float denom = 0;
-	auto d = atv.col(0) * lWeight.transpose();
-	coefG = VectorXf::Zero(hp.dimension);
-	nd = MatrixXf::Zero(hp.dimension, hp.order);
-	for (size_t nsi = 0; nsi < randSampleWeight.size(); ++nsi)
-	{
-		auto t2 = act(atv.col(nsi + 1).squaredNorm() / 2);
-		nd += atv.col(nsi + 1) * randSampleWeight[nsi].transpose() * t2.second;
-		coefG += atv.col(nsi + 1) * t2.second;
-		denom += t2.first;
-	}
-	denom = max(denom, 1e-5f);
-	ll -= log(denom / randSampleWeight.size());
-	embGrad = (d * (t.second / t.first) - (nd / denom)) * lr * hp.ugWeight;
-	
-	coefG = atv.col(0) * (t.second / t.first) - coefG / denom;
-	VectorXf coefGrads = (embs.transpose() * coefG) * lr * hp.ugWeight;
-	coefGrad = coefGrads[0];
-	subwordCoefGrad.clear();
-	subwordCoefGrad.insert(subwordCoefGrad.end(), coefGrads.data() + 1, coefGrads.data() + coefGrads.size());
 	return ll;
 }
 
@@ -602,7 +516,6 @@ ChronoGramModel::TrainResult ChronoGramModel::trainVectors(const uint32_t * ws, 
 		if (x < usedVocabSize() && inDecay[(size_t)x * hp.order] < 1)
 		{
 			in.block(0, (size_t)x * hp.order, hp.dimension, hp.order).array().rowwise() *= inDecay.segment((size_t)x * hp.order, hp.order).transpose();
-			if (ugOut.cols()) ugOut.col(x) *= inDecay[(size_t)x * hp.order];
 			inDecay.segment((size_t)x * hp.order, hp.order) = 1;
 		}
 
@@ -622,61 +535,44 @@ ChronoGramModel::TrainResult ChronoGramModel::trainVectors(const uint32_t * ws, 
 		}
 
 		// update in, out vector
-		if (hp.zeta < 1)
+		for (auto j = jBegin; j <= jEnd; ++j)
 		{
-			for (auto j = jBegin; j <= jEnd; ++j)
+			if (i == j) continue;
+			if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
+			if (ws[j] >= usedVocabSize()) continue;
+			float ll = inplaceUpdate<_Initialization>(x, ws[j], lr, false, coef, subwords), llt = 0;
+			assert(isfinite(ll));
+			if (!_Initialization && hp.tnsWeight > 0)
 			{
-				if (i == j) continue;
-				if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
-				if (ws[j] >= usedVocabSize()) continue;
-				float ll = inplaceUpdate<_Initialization>(x, ws[j], lr * (1 - hp.zeta), false, coef, subwords), llUg = 0;
-				assert(isfinite(ll));
-				if (!_Initialization && hp.tnsWeight > 0)
+				for (size_t k = 0; k < hp.temporalNegativeSamples; ++k)
 				{
-					for (size_t k = 0; k < hp.temporalNegativeSamples; ++k)
-					{
-						llUg += inplaceUpdate<_Initialization>(x, ws[j], lr * hp.tnsWeight, true,
-							makeCoef(hp.order, generate_canonical<float, 24>(globalData.rg)),
-							subwords
-						);
-						assert(isfinite(llUg));
-					}
+					llt += inplaceUpdate<_Initialization>(x, ws[j], lr * hp.tnsWeight, true,
+						makeCoef(hp.order, generate_canonical<float, 24>(globalData.rg)),
+						subwords
+					);
+					assert(isfinite(llt));
 				}
-				for (size_t k = 0; k < hp.negativeSamples; ++k)
-				{
-					uint32_t ns = unigramTable(globalData.rg);
-					while (ns == ws[j]) ns = unigramTable(globalData.rg);
-					ll += inplaceUpdate<_Initialization>(x, ns, lr * (1 - hp.zeta), true, coef, subwords);
-					assert(isfinite(ll));
-				}
-				tr.numPairs++;
-				tr.contextLL += ll * (1 - hp.zeta);
-				tr.ugLL += llUg * hp.tnsWeight;
 			}
-		}
-		else
-		{
-			tr.numPairs += jEnd - jBegin - 1;
+			for (size_t k = 0; k < hp.negativeSamples; ++k)
+			{
+				uint32_t ns = unigramTable(globalData.rg);
+				while (ns == ws[j]) ns = unigramTable(globalData.rg);
+				ll += inplaceUpdate<_Initialization>(x, ns, lr, true, coef, subwords);
+				assert(isfinite(ll));
+			}
+			tr.numPairs++;
+			tr.contextLL += ll;
+			tr.temporalLL += llt * hp.tnsWeight;
 		}
 
-		if (!_Initialization && hp.ugWeight > 0 && x < usedVocabSize())
-		{
-
-		}
-
-		if (!_Initialization && hp.zeta > 0 && !fixedWords.count(x))
+		if (!_Initialization && hp.ugWeight > 0 && !fixedWords.count(x))
 		{
 			vector<VectorXf> randSampleWeight;
-			vector<const VectorXf*> randSampleWeightP;
 			for (size_t i = 0; i < hp.temporalNegativeSamples; ++i)
 			{
-				randSampleWeight.emplace_back(makeCoef(hp.order, generate_canonical<float, 16>(globalData.rg)));
+				randSampleWeight.emplace_back(makeCoef(hp.order, generate_canonical<float, 24>(globalData.rg)));
 			}
-			for (size_t i = 0; i < hp.temporalNegativeSamples; ++i)
-			{
-				randSampleWeightP.emplace_back(&randSampleWeight[i]);
-			}
-			tr.ugLL += inplaceTimeUpdate(x, lr, coef, subwords, randSampleWeightP);
+			tr.ugLL += inplaceTimeUpdate(x, lr * hp.ugWeight, coef, subwords, randSampleWeight) * hp.ugWeight;
 		}
 	}
 
@@ -721,6 +617,7 @@ ChronoGramModel::TrainResult ChronoGramModel::trainVectorsMulti(const uint32_t *
 				shuffle(subwords.begin(), subwords.end(), ld.rg);
 				subwords.erase(subwords.begin() + hp.subwordDropoutRemain, subwords.end());
 			}
+			if (x >= usedVocabSize() && subwords.empty()) continue;
 		}
 
 		lock_guard<mutex> lock(mtxIn[x % hashSize]);
@@ -731,79 +628,73 @@ ChronoGramModel::TrainResult ChronoGramModel::trainVectorsMulti(const uint32_t *
 		}
 
 		// update in, out vector
-		if (hp.zeta < 1)
+		for (auto j = jBegin; j <= jEnd; ++j)
 		{
-			for (auto j = jBegin; j <= jEnd; ++j)
+			if (i == j) continue;
+			if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
+			if (ws[j] >= usedVocabSize()) continue;
+			if (ld.updateOutIdx.find(ws[j]) == ld.updateOutIdx.end())
 			{
-				if (i == j) continue;
-				if (_GNgramMode && ws[j] == (uint32_t)-1) continue;
-				if (ws[j] >= usedVocabSize()) continue;
-				if (ld.updateOutIdx.find(ws[j]) == ld.updateOutIdx.end())
-				{
-					ld.updateOutIdx.emplace(ws[j], ld.updateOutIdx.size());
-					ld.updateOutIdxHash.emplace(ws[j] % hashSize);
-				}
+				ld.updateOutIdx.emplace(ws[j], ld.updateOutIdx.size());
+				ld.updateOutIdxHash.emplace(ws[j] % hashSize);
+			}
 
-				float ll, llt = 0;
-				{
-					lock_guard<mutex> lock(mtxOut[ws[j] % hashSize]);
-					ll = getUpdateGradient<_Initialization>(x, ws[j], 
-						lr * (1 - hp.zeta), false, 
-						coef, subwords,
-						updateIn.col(0),
-						ld.updateOutMat.col(ld.updateOutIdx[ws[j]]),
-						ld
-					);
-					assert(isfinite(ll));
+			float ll, llt = 0;
+			{
+				lock_guard<mutex> lock(mtxOut[ws[j] % hashSize]);
+				ll = getUpdateGradient<_Initialization>(x, ws[j], 
+					lr, false, 
+					coef, subwords,
+					updateIn.col(0),
+					ld.updateOutMat.col(ld.updateOutIdx[ws[j]]),
+					ld
+				);
+				assert(isfinite(ll));
 
-					if (!_Initialization && hp.tnsWeight > 0)
+				if (!_Initialization && hp.tnsWeight > 0)
+				{
+					for (size_t k = 0; k < hp.temporalNegativeSamples; ++k)
 					{
-						for (size_t k = 0; k < hp.temporalNegativeSamples; ++k)
-						{
-							llt += getUpdateGradient<_Initialization>(x, ws[j],
-								lr * hp.tnsWeight, true,
-								makeCoef(hp.order, generate_canonical<float, 24>(ld.rg)),
-								subwords,
-								updateIn.col(0),
-								ld.updateOutMat.col(ld.updateOutIdx[ws[j]]),
-								ld
-							);
-							assert(isfinite(llt));
-						}
+						llt += getUpdateGradient<_Initialization>(x, ws[j],
+							lr * hp.tnsWeight, true,
+							makeCoef(hp.order, generate_canonical<float, 24>(ld.rg)),
+							subwords,
+							updateIn.col(0),
+							ld.updateOutMat.col(ld.updateOutIdx[ws[j]]),
+							ld
+						);
+						assert(isfinite(llt));
 					}
 				}
+			}
 
-				for (size_t k = 0; k < hp.negativeSamples; ++k)
+			for (size_t k = 0; k < hp.negativeSamples; ++k)
+			{
+				uint32_t ns = unigramTable(ld.rg);
+				while (ns == ws[j]) ns = unigramTable(ld.rg);
+				if (ld.updateOutIdx.find(ns) == ld.updateOutIdx.end())
 				{
-					uint32_t ns = unigramTable(ld.rg);
-					while (ns == ws[j]) ns = unigramTable(ld.rg);
-					if (ld.updateOutIdx.find(ns) == ld.updateOutIdx.end())
-					{
-						ld.updateOutIdx.emplace(ns, ld.updateOutIdx.size());
-						ld.updateOutIdxHash.emplace(ns % hashSize);
-					}
+					ld.updateOutIdx.emplace(ns, ld.updateOutIdx.size());
+					ld.updateOutIdxHash.emplace(ns % hashSize);
+				}
 					
-					lock_guard<mutex> lock(mtxOut[ns % hashSize]);
-					ll += getUpdateGradient<_Initialization>(x, ns, 
-						lr * (1 - hp.zeta), 
-						true, coef, subwords,
-						updateIn.col(0),
-						ld.updateOutMat.col(ld.updateOutIdx[ns]),
-						ld
-					);
-					assert(isfinite(ll));
-				}
-				tr.numPairs++;
-				tr.contextLL += ll * (1 - hp.zeta);
-				tr.temporalLL += llt * hp.tnsWeight;
+				lock_guard<mutex> lock(mtxOut[ns % hashSize]);
+				ll += getUpdateGradient<_Initialization>(x, ns, 
+					lr, 
+					true, coef, subwords,
+					updateIn.col(0),
+					ld.updateOutMat.col(ld.updateOutIdx[ns]),
+					ld
+				);
+				assert(isfinite(ll));
 			}
-		}
-		else
-		{
-			tr.numPairs += jEnd - jBegin - 1;
+			tr.numPairs++;
+			tr.contextLL += ll;
+			tr.temporalLL += llt * hp.tnsWeight;
 		}
 
-		if (!_Initialization && hp.ugWeight > 0)
+		if((!_Initialization && hp.ugWeight > 0 && !fixedWords.count(x)) || hp.subwordGrams) updateInBlock.setZero();
+		if (!_Initialization && hp.ugWeight > 0 && !fixedWords.count(x))
 		{
 			thread_local vector<VectorXf> randSampleWeight;
 
@@ -813,33 +704,10 @@ ChronoGramModel::TrainResult ChronoGramModel::trainVectorsMulti(const uint32_t *
 				randSampleWeight.emplace_back(makeCoef(hp.order, generate_canonical<float, 24>(ld.rg)));
 			}
 
-			tr.ugLL += getTimeUpdateGradientV2(x, lr, coef, subwords,
+			tr.ugLL += getTimeUpdateGradient(x, lr * hp.ugWeight, coef, subwords,
 				randSampleWeight,
-				updateUgIn, updateUgCoef, updateSubwordUgCoef,
-				TempAct{}
-			);
-		}
-		
-		if((!_Initialization && hp.zeta > 0 && !fixedWords.count(x)) || hp.subwordGrams) updateInBlock.setZero();
-		if (!_Initialization && hp.zeta > 0 && !fixedWords.count(x))
-		{
-			thread_local vector<VectorXf> randSampleWeight;
-			thread_local vector<const VectorXf*> randSampleWeightP;
-
-			randSampleWeight.clear();
-			randSampleWeightP.clear();
-			for (size_t i = 0; i < hp.temporalNegativeSamples; ++i)
-			{
-				randSampleWeight.emplace_back(makeCoef(hp.order, generate_canonical<float, 24>(ld.rg)));
-			}
-			for (size_t i = 0; i < hp.temporalNegativeSamples; ++i)
-			{
-				randSampleWeightP.emplace_back(&randSampleWeight[i]);
-			}
-
-			tr.ugLL += getTimeUpdateGradient(x, lr, coef, subwords,
-				randSampleWeightP,
-				updateInBlock.block(0, 0, hp.dimension, hp.order));
+				updateInBlock.block(0, 0, hp.dimension, hp.order)
+			) * hp.ugWeight;
 		}
 
 		{
@@ -850,26 +718,16 @@ ChronoGramModel::TrainResult ChronoGramModel::trainVectorsMulti(const uint32_t *
 			}
 			else if (hp.subwordGrams)
 			{
-				updateInBlock += updateIn * (coef.array() * vEta.array()).matrix().transpose();
+				updateInBlock += updateIn * coef.transpose();
 				if (x < usedVocabSize())
 				{
 					in.block(0, (size_t)x * hp.order, hp.dimension, hp.order) += updateInBlock;
-					if (!_Initialization && hp.ugWeight > 0)
-					{
-						in.block(0, (size_t)x * hp.order, hp.dimension, hp.order) += updateUgIn * ugCoef[x];
-						//ugCoef[x] += updateUgCoef;
-					}
 				}
 			}
 			else if(x < usedVocabSize())
 			{
-				if (hp.zeta > 0) in.block(0, (size_t)x * hp.order, hp.dimension, hp.order) += updateInBlock;
-				in.block(0, (size_t)x * hp.order, hp.dimension, hp.order) += updateIn * (coef.array() * vEta.array()).matrix().transpose();
-				if (!_Initialization && hp.ugWeight > 0)
-				{
-					in.block(0, (size_t)x * hp.order, hp.dimension, hp.order) += updateUgIn * ugCoef[x];
-					//ugCoef[x] += updateUgCoef;
-				}
+				if (hp.ugWeight > 0) in.block(0, (size_t)x * hp.order, hp.dimension, hp.order) += updateInBlock;
+				in.block(0, (size_t)x * hp.order, hp.dimension, hp.order) += updateIn * coef.transpose();
 			}
 		}
 
@@ -884,12 +742,7 @@ ChronoGramModel::TrainResult ChronoGramModel::trainVectorsMulti(const uint32_t *
 					subwordIn.block(0, (size_t)p * hp.order, hp.dimension, hp.order).array().rowwise() *= subwordInDecay.segment((size_t)p * hp.order, hp.order).transpose();
 					subwordInDecay.segment((size_t)p * hp.order, hp.order) = 1;
 				}
-				subwordIn.block(0, (size_t)p * hp.order, hp.dimension, hp.order) += updateInBlock / subwords.size();
-				if (!_Initialization && hp.ugWeight > 0)
-				{
-					subwordIn.block(0, (size_t)p * hp.order, hp.dimension, hp.order) += updateUgIn * subwordUgCoef[si] / subwords.size();
-					//subwordUgCoef[si] += updateSubwordUgCoef[si] / subwords.size();
-				}
+				subwordIn.block(0, (size_t)p * hp.order, hp.dimension, hp.order) += updateInBlock * ((float)(subwordTablePtrs[x + 1] - subwordTablePtrs[x]) / subwords.size());
 			}
 		}
 
@@ -978,7 +831,7 @@ void ChronoGramModel::normalizeWordDist(bool updateVocab, ThreadPool* pool)
 				float p = 0;
 				for (size_t i = 0; i <= step; ++i)
 				{
-					p += TempAct{}(makeTimedVector(v, coefs[i]).squaredNorm() / 2).first;
+					p += TempAct{}(makeTimedVector(v, coefs[i]).topRows(hp.ugPartDimension).squaredNorm() / 2).first;
 				}
 				p /= step + 1;
 				wordScale[v] = p;
@@ -997,7 +850,7 @@ void ChronoGramModel::normalizeWordDist(bool updateVocab, ThreadPool* pool)
 						float p = 0;
 						for (size_t i = 0; i <= step; ++i)
 						{
-							p += TempAct{}(makeTimedVector(v, coefs[i]).squaredNorm() / 2).first;
+							p += TempAct{}(makeTimedVector(v, coefs[i]).topRows(hp.ugPartDimension).squaredNorm() / 2).first;
 						}
 						p /= step + 1;
 						wordScale[v] = p;
@@ -1023,15 +876,15 @@ float ChronoGramModel::getWordProbByTime(uint32_t w, float timePoint) const
 {
 	auto coef = makeCoef(hp.order, normalizedTimePoint(timePoint));
 	thread_local MatrixXf m;
-	m = MatrixXf::Zero(hp.dimension, hp.order);
+	m = MatrixXf::Zero(hp.ugPartDimension, hp.order);
 	if (hp.subwordGrams)
 	{
 		for (size_t p = subwordTablePtrs[w]; p < subwordTablePtrs[w + 1]; ++p)
 		{
-			m += subwordIn.block(0, subwordTable[p] * hp.order, hp.dimension, hp.order) * subwordUgCoef[p];
+			m += subwordIn.block(0, subwordTable[p] * hp.order, hp.ugPartDimension, hp.order);
 		}
 	}
-	if (w < usedVocabSize()) m += in.block(0, w * hp.order, hp.dimension, hp.order) * ugCoef[w];
+	if (w < usedVocabSize()) m += in.block(0, w * hp.order, hp.ugPartDimension, hp.order);
 	return TempAct{}((m * coef).squaredNorm() / 2).first / wordScale[w];
 }
 
@@ -1248,7 +1101,11 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 	float epochs, size_t report, const ReportCallback& reportCallback)
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
-	ThreadPool workers{ numWorkers };
+	if (!pool || pool->getNumWorkers() != numWorkers)
+	{
+		pool = unique_ptr<ThreadPool>(new ThreadPool(numWorkers));
+	}
+
 	const size_t hashMul = 64;
 	vector<ThreadLocalData> ld;
 	unique_ptr<mutex[]> mtxIn, mtxSubwordIn, mtxOut;
@@ -1312,7 +1169,7 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 						continue;
 					}
 				}
-				futures.emplace_back(workers.enqueue([&](size_t threadId)
+				futures.emplace_back(pool->enqueue([&](size_t threadId)
 				{
 					return trainVectorsMulti<_Initialization>(d.first.data(), d.first.size(), d.second,
 						windowLen, lr, ld[threadId], mtxIn.get(), mtxSubwordIn.get(), mtxOut.get(), numWorkers * hashMul);
@@ -1339,7 +1196,7 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 			bool result = false;
 			if (report && lastProcWords / report < procWords / report)
 			{
-				normalizeWordDist(true, &workers);
+				normalizeWordDist(true, pool.get());
 				float timePerKword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
 				if (reportCallback)
 				{
@@ -1450,7 +1307,7 @@ void ChronoGramModel::train(const function<ResultReader()>& reader,
 	}
 	procCollection();
 
-	if(!_Initialization) normalizeWordDist(true, &workers);
+	if(!_Initialization) normalizeWordDist(true, pool.get());
 }
 
 template<bool _Initialization>
@@ -1459,7 +1316,10 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 	const ReportCallback& reportCallback)
 {
 	if (!numWorkers) numWorkers = thread::hardware_concurrency();
-	ThreadPool workers{ numWorkers };
+	if (!pool || pool->getNumWorkers() != numWorkers)
+	{
+		pool = unique_ptr<ThreadPool>(new ThreadPool(numWorkers));
+	}
 	const size_t hashMul = 64;
 	vector<ThreadLocalData> ld;
 	unique_ptr<mutex[]> mtxIn, mtxSubwordIn, mtxOut;
@@ -1528,7 +1388,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 						continue;
 					}
 				}
-				futures.emplace_back(workers.enqueue([&](size_t threadId)
+				futures.emplace_back(pool->enqueue([&](size_t threadId)
 				{
 					return trainVectorsMulti<_Initialization, true>(d.first.data(), 5, d.second,
 						4, lr, ld[threadId], mtxIn.get(), mtxSubwordIn.get(), mtxOut.get(), numWorkers * hashMul);
@@ -1602,7 +1462,7 @@ void ChronoGramModel::trainFromGNgram(const function<GNgramResultReader()>& read
 				}
 			}
 
-			normalizeWordDist(true, &workers);
+			normalizeWordDist(true, pool.get());
 			float timePerKword = (procWords - lastProcWords) / timer.getElapsed() / 1000.f;
 			if (reportCallback)
 			{
@@ -1682,7 +1542,7 @@ end_train:
 		}
 	}
 
-	if(!_Initialization) normalizeWordDist(true, &workers);
+	if(!_Initialization) normalizeWordDist(true, pool.get());
 }
 
 float ChronoGramModel::arcLengthOfWord(const string & word, size_t step) const
@@ -1779,7 +1639,7 @@ vector<tuple<string, float, float>> ChronoGramModel::mostSimilar(
 		}
 		VectorXf tv = makeTimedVector(v, coef);
 		float wPrior = getWordProbByTime(v, tv, coef, tPrior);
-		if (hp.zeta > 0 && wPrior / (tPrior + tpvBias) < tpvThreshold)
+		if (hp.ugWeight > 0 && wPrior / (tPrior + tpvBias) < tpvThreshold)
 		{
 			sim[v] = make_pair(-INFINITY, wPrior / tPrior);
 			continue;
@@ -1859,8 +1719,8 @@ vector<pair<string, float>> ChronoGramModel::calcShift(size_t minCnt, float time
 		if (frequencies[v] < minCnt) continue;
 		VectorXf v1 = makeTimedVector(v, coef1);
 		VectorXf v2 = makeTimedVector(v, coef2);
-		if (hp.zeta > 0 && getWordProbByTime(v, v1, coef1, tPrior1) / (tPrior1 + tpvBias) < tpvThreshold) continue;
-		if (hp.zeta > 0 && getWordProbByTime(v, v2, coef2, tPrior2) / (tPrior2 + tpvBias) < tpvThreshold) continue;
+		if (hp.ugWeight > 0 && getWordProbByTime(v, v1, coef1, tPrior1) / (tPrior1 + tpvBias) < tpvThreshold) continue;
+		if (hp.ugWeight > 0 && getWordProbByTime(v, v2, coef2, tPrior2) / (tPrior2 + tpvBias) < tpvThreshold) continue;
 		float d;
 		if (m >= 0)
 		{
@@ -1906,7 +1766,7 @@ float ChronoGramModel::sumSimilarity(const string & src, const vector<string>& t
 	{
 		VectorXf tv = makeTimedVector(v, coef);
 		float wPrior = getWordProbByTime(v, tv, coef, tPrior);
-		if (hp.zeta > 0 && wPrior / (tPrior + tpvBias) < tpvThreshold) continue;
+		if (hp.ugWeight > 0 && wPrior / (tPrior + tpvBias) < tpvThreshold) continue;
 		sum += (tv * (1 - m) + out.col(v) * m).normalized().dot(vec);
 	}
 
@@ -1994,7 +1854,7 @@ void ChronoGramModel::saveModel(ostream & os, bool compressed) const
 		writeToBinStreamCompressed(os, out);
 		if (hp.ugWeight)
 		{
-			writeToBinStreamCompressed(os, ugOut);
+			//writeToBinStreamCompressed(os, ugOut);
 		}
 	}
 	else
@@ -2004,7 +1864,7 @@ void ChronoGramModel::saveModel(ostream & os, bool compressed) const
 		writeToBinStream(os, out);
 		if (hp.ugWeight)
 		{
-			writeToBinStream(os, ugOut);
+			//writeToBinStream(os, ugOut);
 		}
 	}
 
@@ -2079,8 +1939,8 @@ ChronoGramModel ChronoGramModel::loadModel(_Istream & is)
 				readFromBinStream(is, ret.out);
 				if (ret.hp.ugWeight)
 				{
-					ret.ugOut.resize(ret.hp.dimension, V);
-					readFromBinStream(is, ret.ugOut);
+					//ret.ugOut.resize(ret.hp.dimension, V);
+					//readFromBinStream(is, ret.ugOut);
 				}
 			}
 			else if (version == 4)
@@ -2090,8 +1950,8 @@ ChronoGramModel ChronoGramModel::loadModel(_Istream & is)
 				readFromBinStreamCompressed(is, ret.out);
 				if (ret.hp.ugWeight)
 				{
-					ret.ugOut.resize(ret.hp.dimension, V);
-					readFromBinStreamCompressed(is, ret.ugOut);
+					//ret.ugOut.resize(ret.hp.dimension, V);
+					//readFromBinStreamCompressed(is, ret.ugOut);
 				}
 			}
 			
@@ -2174,10 +2034,17 @@ size_t ChronoGramModel::getWordCount(const std::string & word) const
 }
 
 ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>& words,
-	size_t windowLen, size_t nsQ, const function<float(float)>& timePrior, float timePriorWeight,
+	size_t windowLen, size_t nsQ, size_t workers, const function<float(float)>& timePrior, 
+	float timePriorWeight, float ctxWeight, float ugWeight,
 	bool estimateSubword) const
 {
-	LLEvaluater ret{ *this, windowLen, nsQ, timePriorWeight };
+	if(!workers) workers = thread::hardware_concurrency();
+	if (!pool || pool->getNumWorkers() != workers)
+	{
+		pool = unique_ptr<ThreadPool>(new ThreadPool(workers));
+	}
+
+	LLEvaluater ret{ *this, windowLen, nsQ, timePriorWeight, ctxWeight, ugWeight };
 	ret.timePrior = timePrior;
 
 	const size_t V = usedVocabSize();
@@ -2223,7 +2090,6 @@ ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>&
 			{
 				s += subwordIn.block(0, subwordTable[p] * hp.order, hp.dimension, hp.order);
 			}
-			s /= subwordTablePtrs[x + 1] - subwordTablePtrs[x];
 			s += in.block(0, x * hp.order, hp.dimension, hp.order);
 		}
 		else
@@ -2233,7 +2099,6 @@ ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>&
 			{
 				s += subwordIn.block(0, p * hp.order, hp.dimension, hp.order);
 			}
-			s /= subwordTables[x - V].size();
 		}
 		return out.col(y).transpose() * s;
 	};
@@ -2249,11 +2114,20 @@ ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>&
 			if (nsQ)
 			{
 				coefs[wId].dataVec.resize((V + nsQ - 1) / nsQ * hp.order);
-				for (size_t v = n; v < V; v += nsQ)
+				vector<future<void>> futures;
+				const size_t stride = pool->getNumWorkers();
+				for (size_t w = 0; w < stride; ++w)
 				{
-					VectorXf c = calcCoef(wId, v);
-					copy(c.data(), c.data() + hp.order, &coefs[wId].dataVec[v / nsQ * hp.order]);
+					futures.emplace_back(pool->enqueue([&, wId, w, n](size_t)
+					{
+						for (size_t v = n + w * nsQ; v < V; v += nsQ * stride)
+						{
+							VectorXf c = calcCoef(wId, v);
+							copy(c.data(), c.data() + hp.order, &coefs[wId].dataVec[v / nsQ * hp.order]);
+						}
+					}));
 				}
+				for (auto& f : futures) f.get();
 				n = (n + 1) % nsQ;
 			}
 		}
@@ -2276,22 +2150,23 @@ ChronoGramModel::LLEvaluater ChronoGramModel::evaluateSent(const vector<string>&
 			MatrixXf s;
 			if (wId < V)
 			{
-				s = MatrixXf::Zero(hp.dimension, hp.order);
-				for (size_t p = subwordTablePtrs[wId]; p < subwordTablePtrs[wId + 1]; ++p)
+				s = MatrixXf::Zero(hp.ugPartDimension, hp.order);
+				if (hp.subwordGrams)
 				{
-					s += subwordIn.block(0, subwordTable[p] * hp.order, hp.dimension, hp.order);
+					for (size_t p = subwordTablePtrs[wId]; p < subwordTablePtrs[wId + 1]; ++p)
+					{
+						s += subwordIn.block(0, subwordTable[p] * hp.order, hp.ugPartDimension, hp.order);
+					}
 				}
-				if (subwordTablePtrs[wId + 1] > subwordTablePtrs[wId]) s /= subwordTablePtrs[wId + 1] - subwordTablePtrs[wId];
-				s += in.block(0, wId * hp.order, hp.dimension, hp.order);
+				s += in.block(0, wId * hp.order, hp.ugPartDimension, hp.order);
 			}
 			else
 			{
-				s = MatrixXf::Zero(hp.dimension, hp.order);
+				s = MatrixXf::Zero(hp.ugPartDimension, hp.order);
 				for (auto p : subwordTables[wId - V])
 				{
-					s += subwordIn.block(0, p * hp.order, hp.dimension, hp.order);
+					s += subwordIn.block(0, p * hp.order, hp.ugPartDimension, hp.order);
 				}
-				if (!subwordTables[wId - V].empty()) s /= subwordTables[wId - V].size();
 			}
 			ugCoefs[wId] = s.transpose() * s;
 		}
@@ -2305,7 +2180,7 @@ pair<float, float> ChronoGramModel::predictSentTime(const vector<string>& words,
 	size_t windowLen, size_t nsQ, const function<float(float)>& timePrior, float timePriorWeight,
 	size_t initStep, float threshold, std::vector<float>* llOutput) const
 {
-	auto evaluator = evaluateSent(words, windowLen, nsQ, timePrior, timePriorWeight);
+	auto evaluator = evaluateSent(words, windowLen, nsQ, 0, timePrior, timePriorWeight);
 	constexpr uint32_t uScale = 0x80000000;
 	map<uint32_t, pair<float, float>> lls;
 	float maxLL = -INFINITY;
@@ -2424,19 +2299,13 @@ float ChronoGramModel::LLEvaluater::operator()(float normalizedTimePoint) const
 			const uint32_t y = wordIds[j];
 			if (y >= V) continue;
 			float d = (tCoef.array() * Map<const ArrayXf>{ cx.get(y, nsQ, tgm.hp.order), tgm.hp.order }).sum();
-			ll += logsigmoid(d) * (1 - tgm.hp.zeta);
+			ll += logsigmoid(d) * ctxWeight;
 			count[x]++;
 		}
 
 		if (tgm.hp.ugWeight)
 		{
-			ll += log(TempAct{}((ugCoefs.find(x)->second.array() * ttCoef.array()).sum()).first) * tgm.hp.ugWeight;
-		}
-
-		if (tgm.hp.zeta)
-		{
-			const VectorXf& vec = x < V ? tgm.makeTimedVector(x, tCoef) : tgm.makeSubwordTimedVector(subwordTables[x - V], tCoef);
-			ll += log(1 - exp(-vec.squaredNorm() / 2 * tgm.hp.lambda * pa) + 1e-5f) * tgm.hp.zeta;
+			ll += log(TempAct{}((ugCoefs.find(x)->second.array() * ttCoef.array()).sum()).first + 1e-12f) * tgm.hp.ugWeight * ugWeight;
 		}
 	}
 
@@ -2458,7 +2327,7 @@ float ChronoGramModel::LLEvaluater::operator()(float normalizedTimePoint) const
 				//nll += tgm.unigramDist[j] * tVec[idx];
 				denom += tgm.unigramDist[j];
 			}
-			ll += nll / denom * tgm.hp.negativeSamples * p.second * (1 - tgm.hp.zeta);
+			ll += nll / denom * tgm.hp.negativeSamples * p.second;
 		}
 	}
 	return ll;

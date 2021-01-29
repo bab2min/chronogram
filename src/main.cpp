@@ -694,7 +694,7 @@ int main(int argc, char* argv[])
 			istringstream iss{ line.substr(1) };
 			istream_iterator<string> wBegin{ iss }, wEnd{};
 			vector<string> words{ wBegin, wEnd };
-			auto evaluator = tgm.evaluateSent(words, args.window, args.nsQ, priorFunc, args.timePrior);
+			auto evaluator = tgm.evaluateSent(words, args.window, args.nsQ, 0, priorFunc, args.timePrior);
 			for (size_t i = 0; i <= args.initStep; ++i)
 			{
 				float z = tgm.getMinPoint() + (i / (float)args.initStep) * (tgm.getMaxPoint() - tgm.getMinPoint());

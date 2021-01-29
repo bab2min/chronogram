@@ -39,6 +39,14 @@ struct VocabCounter
 
 namespace act
 {
+	struct Constant
+	{
+		std::pair<float, float> operator()(float x)
+		{
+			return std::make_pair(1, 0);
+		}
+	};
+
 	struct Linear
 	{
 		std::pair<float, float> operator()(float x)
@@ -47,12 +55,30 @@ namespace act
 		}
 	};
 
+	struct Log
+	{
+		std::pair<float, float> operator()(float x)
+		{
+			return std::make_pair(std::log(x + 1), 1 / (x + 1));
+		}
+	};
+
 	struct Sqrt
 	{
 		std::pair<float, float> operator()(float x)
 		{
-			x = std::sqrt(x);
+			x = std::sqrt(x + 1e-12f);
 			return std::make_pair(x, 0.5f / x);
+		}
+	};
+
+	struct PowQ
+	{
+		std::pair<float, float> operator()(float x)
+		{
+			x += 1e-12f;
+			float x2 = std::pow(x, 0.25f);
+			return std::make_pair(x2, 0.25f * x2 / x);
 		}
 	};
 
@@ -64,12 +90,21 @@ namespace act
 			return std::make_pair(x, 1 - x * x);
 		}
 	};
+
+	struct TanhQ
+	{
+		std::pair<float, float> operator()(float x)
+		{
+			x = std::tanh(x / 4);
+			return std::make_pair(x, (1 - x * x) / 4);
+		}
+	};
 }
 
 class ChronoGramModel
 {
 public:
-	using TempAct = act::Linear;
+	using TempAct = act::Sqrt;
 
 	struct ReadResult
 	{
@@ -107,7 +142,7 @@ public:
 
 		const ChronoGramModel& tgm;
 		size_t windowLen, nsQ;
-		float timePriorWeight;
+		float timePriorWeight, ctxWeight, ugWeight;
 
 		std::vector<uint32_t> wordIds;
 		std::unordered_map<uint32_t, MixedVectorCoef> coefs;
@@ -115,9 +150,17 @@ public:
 		std::vector<std::vector<uint32_t>> subwordTables;
 		std::function<float(float)> timePrior;
 
-		LLEvaluater(const ChronoGramModel& _tgm, size_t _windowLen = 0,
-			size_t _nsQ = 0, float _timePriorWeight = 0)
-			: tgm(_tgm), windowLen(_windowLen), nsQ(_nsQ), timePriorWeight(_timePriorWeight)
+		LLEvaluater(const ChronoGramModel& _tgm, 
+			size_t _windowLen = 0,
+			size_t _nsQ = 0, 
+			float _timePriorWeight = 0, 
+			float _ctxWeight = 1,
+			float _ugWeight = 1
+		)
+			: tgm(_tgm), windowLen(_windowLen), nsQ(_nsQ), 
+			timePriorWeight(_timePriorWeight),
+			ctxWeight(_ctxWeight),
+			ugWeight(_ugWeight)
 		{}
 
 	public:
@@ -159,6 +202,7 @@ public:
 		float tnsWeight = 0;
 		float ugWeight = 0;
 		float dropout = 0;
+		uint32_t ugPartDimension = 0;
 	};
 
 private:
@@ -183,8 +227,6 @@ private:
 	Eigen::MatrixXf in; // (D, R * V)
 	Eigen::MatrixXf subwordIn; // (D, R * SV)
 	Eigen::MatrixXf out; // (D, V)
-	Eigen::MatrixXf ugOut; // (D, V)
-	Eigen::VectorXf ugCoef, subwordUgCoef;
 
 	HyperParameter hp;
 	float zBias = 0, zSlope = 1;
@@ -192,7 +234,7 @@ private:
 	float timePadding = 0;
 	float timePriorScale = 1;
 	Eigen::VectorXf timePrior; // (R, 1)
-	Eigen::VectorXf vEta;
+	//Eigen::VectorXf vEta;
 
 	float tpvThreshold = 0.125f, tpvBias = 0.03125f;
 
@@ -201,6 +243,7 @@ private:
 	size_t timeLLCnt = 0;
 	double timeLL = 0;
 
+	mutable std::unique_ptr<ThreadPool> pool;
 	ThreadLocalData globalData;
 	WordDictionary<> vocabs, subwordVocabs;
 
@@ -221,12 +264,12 @@ private:
 
 	std::vector<uint32_t> getSubwordIds(const std::string& s) const;
 
-	template<bool _initialization = false, bool _use_ug = false>
+	template<bool _initialization = false>
 	float inplaceUpdate(size_t x, size_t y, float lr, bool negative, 
 		const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords
 	);
 
-	template<bool _initialization = false, bool _use_ug = false>
+	template<bool _initialization = false>
 	float getUpdateGradient(size_t x, size_t y, float lr, bool negative, 
 		const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
 		Eigen::DenseBase<Eigen::MatrixXf>::ColXpr xGrad,
@@ -235,18 +278,10 @@ private:
 	);
 
 	float inplaceTimeUpdate(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
-		const std::vector<const Eigen::VectorXf*>& randSampleWeight);
+		const std::vector<Eigen::VectorXf>& randSampleWeight);
 	float getTimeUpdateGradient(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
-		const std::vector<const Eigen::VectorXf*>& randSampleWeight,
-		Eigen::Block<Eigen::MatrixXf> grad);
-
-	float inplaceTimeUpdateV2(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
-		const std::vector<const Eigen::VectorXf*>& randSampleWeight);
-
-	template<typename _ActFn>
-	float getTimeUpdateGradientV2(size_t x, float lr, const Eigen::VectorXf& lWeight, const std::vector<uint32_t>& subwords,
 		const std::vector<Eigen::VectorXf>& randSampleWeight,
-		Eigen::MatrixXf& embGrad, float& coefGrad, std::vector<float>& subwordCoefGrad, _ActFn&& act);
+		Eigen::Block<Eigen::MatrixXf> grad);
 
 	float updateTimePrior(float lr, const Eigen::VectorXf& lWeight, const std::vector<const Eigen::VectorXf*>& randSampleWeight);
 
@@ -278,12 +313,14 @@ public:
 	}
 
 	ChronoGramModel(const HyperParameter& _hp, size_t seed = std::random_device()())
-		: hp(_hp), vEta(Eigen::VectorXf::Constant(_hp.order, _hp.eta))
+		: hp(_hp)
+		//, vEta(Eigen::VectorXf::Constant(_hp.order, _hp.eta))
 	{
+		if (!hp.ugPartDimension) hp.ugPartDimension = hp.dimension;
 		globalData.rg = std::mt19937_64{ seed };
 		globalData.vrg = Eigen::Rand::Vmt19937_64{ seed };
 
-		vEta[0] = 1;
+		//vEta[0] = 1;
 		timePadding = .25f / _hp.order;
 	}
 
@@ -334,7 +371,9 @@ public:
 	float similarityStatic(const std::string& word1, const std::string& word2) const;
 
 	LLEvaluater evaluateSent(const std::vector<std::string>& words, size_t windowLen,
-		size_t nsQ = 16, const std::function<float(float)>& timePrior = {}, float timePriorWeight = 0,
+		size_t nsQ = 16, size_t workers = 0, const std::function<float(float)>& timePrior = {}, 
+		float timePriorWeight = 0,
+		float ctxWeight = 1, float ugWeight = 1,
 		bool estimateSubword = false) const;
 
 	std::pair<float, float> predictSentTime(const std::vector<std::string>& words, 

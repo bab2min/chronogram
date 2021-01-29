@@ -78,14 +78,14 @@ struct CGMObject
 			"word_ns", "time_ns", "eta", "zeta", "lambda_v", 
 			"subword_ngram", "subword_dropout_remain", 
 			"weight_decay_interval", "weight_decay", "order_decay", "subword_weight_decay",
-			"tns_weight", "ug_weight", "dropout",
+			"tns_weight", "ug_weight", "ug_dim", "dropout",
 			"seed", nullptr };
-		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|iiffiifffiiiffffffi", (char**)kwlist,
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|iiffiifffiiifffffifi", (char**)kwlist,
 			&hp.dimension, &hp.order, &hp.subsampling, &hp.temporalSubsampling,
 			&hp.negativeSamples, &hp.temporalNegativeSamples, 
 			&hp.eta, &hp.zeta, &hp.lambda, &hp.subwordGrams, &hp.subwordDropoutRemain, 
 			&hp.weightDecayInterval, &hp.weightDecay, &hp.orderDecay, &hp.subwordWeightDecay,
-			&hp.tnsWeight, &hp.ugWeight, &hp.dropout,
+			&hp.tnsWeight, &hp.ugWeight, &hp.ugPartDimension, &hp.dropout,
 			&seed)) return -1;
 		try
 		{
@@ -1096,16 +1096,19 @@ PyObject * CGM_evaluator(CGMObject * self, PyObject * args, PyObject * kwargs)
 	try
 	{
 		PyObject *words, *timePrior = nullptr;
-		size_t windowLen = 4, nsQ = 16;
-		float timePriorWeight = 0;
+		size_t windowLen = 4, nsQ = 16, workers = 0;
+		float timePriorWeight = 0, ctxWeight = 1, ugWeight = 1;
 		size_t estimateSubword = 0;
-		static const char* kwlist[] = { "words", "window_len", "ns_q", "time_prior_fun", "time_prior_weight", "estimate_subword", nullptr };
-		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnOfp", (char**)kwlist,
-			&words, &windowLen, &nsQ, &timePrior, &timePriorWeight, &estimateSubword)) return nullptr;
+		static const char* kwlist[] = { "words", "window_len", "ns_q", "workers", "time_prior_fun", 
+			"time_prior_weight", "ctx_weight", "ug_weight", "estimate_subword", nullptr };
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnnOfffp", (char**)kwlist,
+			&words, &windowLen, &nsQ, &workers, &timePrior, 
+			&timePriorWeight, &ctxWeight, &ugWeight, &estimateSubword)) return nullptr;
 		
 		if (!self->inst) throw runtime_error{ "inst is null" };
-		auto wordsVector = py::toCpp<vector<string>>(words, "`words` must be list of str");
-		auto* e = new ChronoGramModel::LLEvaluater{ self->inst->evaluateSent(wordsVector, windowLen, nsQ, [timePrior](float t)
+		if (PyUnicode_Check(words)) throw runtime_error{ "`words` must be an iterable of str" };
+		auto wordsVector = py::toCpp<vector<string>>(words, "`words` must be an iterable of str");
+		auto* e = new ChronoGramModel::LLEvaluater{ self->inst->evaluateSent(wordsVector, windowLen, nsQ, workers, [timePrior](float t)
 		{
 			if(!timePrior) return 0.f;
 			auto* ret = PyObject_CallObject(timePrior, Py_BuildValue("(f)", t));
@@ -1114,7 +1117,7 @@ PyObject * CGM_evaluator(CGMObject * self, PyObject * args, PyObject * kwargs)
 			float v = PyFloat_AsDouble(ret);
 			if (v == -1 && PyErr_Occurred()) throw bad_exception{};
 			return v;
-		}, timePriorWeight, !!estimateSubword) };
+		}, timePriorWeight, ctxWeight, ugWeight, !!estimateSubword) };
 		return PyObject_CallObject((PyObject*)&CGE_type, Py_BuildValue(timePrior ? "(NnN)" : "(Nns)", self, e, timePrior));
 	}
 	catch (const bad_exception&)
@@ -1134,17 +1137,21 @@ PyObject * CGM_estimateTime(CGMObject * self, PyObject * args, PyObject * kwargs
 	{
 		PyObject *words, *timePrior = nullptr;
 		size_t windowLen = 4, nsQ = 16, workers = 0;
-		float timePriorWeight = 0, min_t = NAN, max_t = NAN, step_t = 1;
+		float timePriorWeight = 0, ctxWeight = 1, ugWeight = 1,  min_t = NAN, max_t = NAN, step_t = 1;
 		size_t estimateSubword = 0;
-		static const char* kwlist[] = { "words", "window_len", "ns_q", "time_prior_fun", "time_prior_weight", "estimate_subword",
+		static const char* kwlist[] = { "words", "window_len", "ns_q", "time_prior_fun", 
+			"time_prior_weight", "ctx_weight", "ug_weight",
+			"estimate_subword",
 			"min_t", "max_t", "step_t", "workers", nullptr };
-		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnOfpfffn", (char**)kwlist,
-			&words, &windowLen, &nsQ, &timePrior, &timePriorWeight, &estimateSubword,
+		if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|nnOfffpfffn", (char**)kwlist,
+			&words, &windowLen, &nsQ, &timePrior, 
+			&timePriorWeight, &ctxWeight, &ugWeight, 
+			&estimateSubword,
 			&min_t, &max_t, &step_t, &workers)) return nullptr;
 
 		if (!self->inst) throw runtime_error{ "inst is null" };
 		auto wordsVector = py::toCpp<vector<string>>(words, "`words` must be list of str");
-		auto ev = self->inst->evaluateSent(wordsVector, windowLen, nsQ, [timePrior](float t)
+		auto ev = self->inst->evaluateSent(wordsVector, windowLen, nsQ, workers, [timePrior](float t)
 		{
 			if (!timePrior) return 0.f;
 			auto* ret = PyObject_CallObject(timePrior, Py_BuildValue("(f)", t));
@@ -1153,7 +1160,7 @@ PyObject * CGM_estimateTime(CGMObject * self, PyObject * args, PyObject * kwargs
 			float v = PyFloat_AsDouble(ret);
 			if (v == -1 && PyErr_Occurred()) throw bad_exception{};
 			return v;
-		}, timePriorWeight, !!estimateSubword);
+		}, timePriorWeight, ctxWeight, ugWeight, !!estimateSubword);
 
 		if (isnan(min_t)) min_t = self->inst->getMinPoint();
 		if (isnan(max_t)) max_t = self->inst->getMaxPoint();
