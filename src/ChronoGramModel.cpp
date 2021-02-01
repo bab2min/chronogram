@@ -206,10 +206,13 @@ void ChronoGramModel::buildSubwordTable()
 
 VectorXf ChronoGramModel::makeCoef(size_t r, float z)
 {
-	VectorXf coef = VectorXf::Zero(r);
-	for (size_t i = 0; i < r; ++i)
+	VectorXf coef(r);
+	z = 2 * z - 1;
+	coef[0] = 1;
+	if (r > 1) coef[1] = z;
+	for (size_t i = 2; i < r; ++i)
 	{
-		coef[i] = poly::chebyshevTGet(i, 2 * z - 1);
+		coef[i] = 2 * z * coef[i - 1] - coef[i - 2];
 	}
 	return coef;
 }
