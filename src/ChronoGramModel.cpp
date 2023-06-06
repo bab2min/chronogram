@@ -2362,9 +2362,9 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float normalizedTimePoint) 
 			if (i == j) continue;
 			const uint32_t y = wordIds[j];
 			if (y == (uint32_t)-1) continue;
-			float d = (tCoef.array() * Map<const ArrayXf>{ cx.get(y, nsQ, tgm.hp.order), tgm.hp.order }).sum();
+			float d = (tCoef.array() * Map<const ArrayXf>{ cx.get(y, nsQ, tgm.hp.order), (Eigen::Index)tgm.hp.order }).sum();
 			ll += logsigmoid(d) * (1 - tgm.hp.zeta);
-			float dd = (tDCoef.array() * Map<const ArrayXf>{ cx.get(y, nsQ, tgm.hp.order) + 1, tgm.hp.order - 1 }).sum(), sd;
+			float dd = (tDCoef.array() * Map<const ArrayXf>{ cx.get(y, nsQ, tgm.hp.order) + 1, (Eigen::Index)tgm.hp.order - 1 }).sum(), sd;
 			dll += dd * (sd = sigmoid(-d)) * (1 - tgm.hp.zeta);
 			count[x]++;
 		}
