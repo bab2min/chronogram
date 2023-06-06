@@ -27,6 +27,11 @@ jobs:
         git checkout tags/3.4.0
         cd ..
         mv eigen include
+        git clone https://github.com/bab2min/EigenRand
+        cd EigenRand
+        git checkout tags/v0.5.0
+        cd ..
+        mv EigenRand/EigenRand include/
 
         yum install libffi-devel -y
         /opt/python/cp39-cp39/bin/python -m pip install --upgrade pip setuptools
@@ -62,6 +67,11 @@ jobs:
         git checkout tags/3.4.0
         cd ..
         mv eigen include
+        git clone https://github.com/bab2min/EigenRand
+        cd EigenRand
+        git checkout tags/v0.5.0
+        cd ..
+        mv EigenRand/EigenRand include/
 
         yum install libffi-devel -y
         /opt/python/cp311-cp311/bin/python -m pip install --upgrade pip setuptools
@@ -102,6 +112,11 @@ jobs:
         git checkout tags/3.4.0
         cd ..
         mv eigen include
+        git clone https://github.com/bab2min/EigenRand
+        cd EigenRand
+        git checkout tags/v0.5.0
+        cd ..
+        mv EigenRand/EigenRand include/
 
         python -m pip install twine wheel numpy==`python .github/workflows/numpy_version.py`
         MACOSX_DEPLOYMENT_TARGET=10.14 CG_CPU_ARCH=x86_64 python setup.py bdist_wheel
@@ -137,6 +152,11 @@ jobs:
         git checkout tags/3.4.0
         cd ..
         mv eigen include
+        git clone https://github.com/bab2min/EigenRand
+        cd EigenRand
+        git checkout tags/v0.5.0
+        cd ..
+        mv EigenRand/EigenRand include/
 
         python -m pip install --upgrade pip setuptools
         python -m pip install twine wheel numpy==$(python .github/workflows/numpy_version.py)
