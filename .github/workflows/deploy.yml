@@ -23,7 +23,13 @@ jobs:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
+        git clone https://gitlab.com/libeigen/eigen
+        cd eigen
+        git checkout tags/3.4.0
+        cd ..
+        mv eigen include
         yum install libffi-devel -y
+
         /opt/python/cp39-cp39/bin/python -m pip install --upgrade pip setuptools
         /opt/python/cp39-cp39/bin/python -m pip install "cryptography<38" "twine<4" wheel numpy==`/opt/python/cp39-cp39/bin/python .github/workflows/numpy_version.py`
         /opt/python/cp39-cp39/bin/python setup.py sdist
@@ -52,6 +58,12 @@ jobs:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
+        git clone https://gitlab.com/libeigen/eigen
+        cd eigen
+        git checkout tags/3.4.0
+        cd ..
+        mv eigen include
+
         yum install libffi-devel -y
         /opt/python/cp311-cp311/bin/python -m pip install --upgrade pip setuptools
         /opt/python/cp311-cp311/bin/python -m pip install twine wheel numpy==`/opt/python/cp311-cp311/bin/python .github/workflows/numpy_version.py`
@@ -86,6 +98,12 @@ jobs:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
+        git clone https://gitlab.com/libeigen/eigen
+        cd eigen
+        git checkout tags/3.4.0
+        cd ..
+        mv eigen include
+
         python -m pip install twine wheel numpy==`python .github/workflows/numpy_version.py`
         MACOSX_DEPLOYMENT_TARGET=10.14 CG_CPU_ARCH=x86_64 python setup.py bdist_wheel
         twine upload dist/*
@@ -115,6 +133,12 @@ jobs:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
+        git clone https://gitlab.com/libeigen/eigen
+        cd eigen
+        git checkout tags/3.4.0
+        cd ..
+        mv eigen include
+
         python -m pip install --upgrade pip setuptools
         python -m pip install twine wheel numpy==$(python .github/workflows/numpy_version.py)
         python setup.py bdist_wheel

@@ -22,6 +22,11 @@ jobs:
         submodules: recursive
     - name: Build
       run: |
+        git clone https://gitlab.com/libeigen/eigen
+        cd eigen
+        git checkout tags/3.4.0
+        cd ..
+        mv eigen include
         /opt/python/${{ matrix.cp }}/bin/python -m pip install numpy==`/opt/python/${{ matrix.cp }}/bin/python .github/workflows/numpy_version.py`
         /opt/python/${{ matrix.cp }}/bin/python setup.py build install
 
@@ -48,6 +53,11 @@ jobs:
         submodules: recursive
     - name: Build
       run: |
+        git clone https://gitlab.com/libeigen/eigen
+        cd eigen
+        git checkout tags/3.4.0
+        cd ..
+        mv eigen include
         /opt/python/${{ matrix.cp }}/bin/python -m pip install numpy==`/opt/python/${{ matrix.cp }}/bin/python .github/workflows/numpy_version.py`
         /opt/python/${{ matrix.cp }}/bin/python setup.py build install
 
@@ -77,6 +87,11 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Build
       run: |
+        git clone https://gitlab.com/libeigen/eigen
+        cd eigen
+        git checkout tags/3.4.0
+        cd ..
+        mv eigen include
         python -m pip install numpy==`python .github/workflows/numpy_version.py`
         MACOSX_DEPLOYMENT_TARGET=10.14 CG_CPU_ARCH=arm64 python setup.py build
     - name: Archive binary
@@ -107,6 +122,11 @@ jobs:
         architecture: ${{ matrix.architecture }}
     - name: Build
       run: |
+        git clone https://gitlab.com/libeigen/eigen
+        cd eigen
+        git checkout tags/3.4.0
+        cd ..
+        mv eigen include
         python -m pip install --upgrade pip setuptools
         python -m pip install numpy==$(python .github/workflows/numpy_version.py)
         python setup.py build install
