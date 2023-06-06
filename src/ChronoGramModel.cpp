@@ -2388,9 +2388,9 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float normalizedTimePoint) 
 			float denom = 0;
 			for (size_t j = cx.n; j < V; j += nsQ)
 			{
-				float d = (tCoef.array() * Map<const ArrayXf>{ cx.get(j, nsQ, tgm.hp.order), tgm.hp.order }).sum();
+				float d = (tCoef.array() * Map<const ArrayXf>{ cx.get(j, nsQ, tgm.hp.order), (Eigen::Index)tgm.hp.order }).sum();
 				nll += tgm.unigramDist[j] * logsigmoid(-d);
-				float dd = (tDCoef.array() * Map<const ArrayXf>{ cx.get(j, nsQ, tgm.hp.order) + 1, tgm.hp.order - 1 }).sum(), sd;
+				float dd = (tDCoef.array() * Map<const ArrayXf>{ cx.get(j, nsQ, tgm.hp.order) + 1, (Eigen::Index)tgm.hp.order - 1 }).sum(), sd;
 				dnll += -tgm.unigramDist[j] * dd * (sd = sigmoid(d));
 				denom += tgm.unigramDist[j];
 			}
