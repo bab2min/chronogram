@@ -22,11 +22,12 @@ jobs:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
+        mkdir include
         git clone https://gitlab.com/libeigen/eigen
         cd eigen
         git checkout tags/3.4.0
         cd ..
-        mv eigen include
+        mv eigen/Eigen include
         git clone https://github.com/bab2min/EigenRand
         cd EigenRand
         git checkout tags/v0.5.0
@@ -62,11 +63,12 @@ jobs:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
+        mkdir include
         git clone https://gitlab.com/libeigen/eigen
         cd eigen
         git checkout tags/3.4.0
         cd ..
-        mv eigen include
+        mv eigen/Eigen include
         git clone https://github.com/bab2min/EigenRand
         cd EigenRand
         git checkout tags/v0.5.0
@@ -107,11 +109,12 @@ jobs:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
+        mkdir include
         git clone https://gitlab.com/libeigen/eigen
         cd eigen
         git checkout tags/3.4.0
         cd ..
-        mv eigen include
+        mv eigen/Eigen include
         git clone https://github.com/bab2min/EigenRand
         cd EigenRand
         git checkout tags/v0.5.0
@@ -147,11 +150,12 @@ jobs:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
+        mkdir include
         git clone https://gitlab.com/libeigen/eigen
         cd eigen
         git checkout tags/3.4.0
         cd ..
-        mv eigen include
+        mv eigen/Eigen include
         git clone https://github.com/bab2min/EigenRand
         cd EigenRand
         git checkout tags/v0.5.0
@@ -188,11 +192,12 @@ jobs:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
+        mkdir include
         git clone https://gitlab.com/libeigen/eigen
         cd eigen
         git checkout tags/3.4.0
         cd ..
-        mv eigen include
+        mv eigen/Eigen include
         git clone https://github.com/bab2min/EigenRand
         cd EigenRand
         git checkout tags/v0.5.0

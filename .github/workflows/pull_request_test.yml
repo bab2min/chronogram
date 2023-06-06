@@ -22,11 +22,12 @@ jobs:
         submodules: recursive
     - name: Build
       run: |
+        mkdir include
         git clone https://gitlab.com/libeigen/eigen
         cd eigen
         git checkout tags/3.4.0
         cd ..
-        mv eigen include
+        mv eigen/Eigen include
         git clone https://github.com/bab2min/EigenRand
         cd EigenRand
         git checkout tags/v0.5.0
@@ -59,11 +60,12 @@ jobs:
         submodules: recursive
     - name: Build
       run: |
+        mkdir include
         git clone https://gitlab.com/libeigen/eigen
         cd eigen
         git checkout tags/3.4.0
         cd ..
-        mv eigen include
+        mv eigen/Eigen include
         git clone https://github.com/bab2min/EigenRand
         cd EigenRand
         git checkout tags/v0.5.0
@@ -99,11 +101,12 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Build
       run: |
+        mkdir include
         git clone https://gitlab.com/libeigen/eigen
         cd eigen
         git checkout tags/3.4.0
         cd ..
-        mv eigen include
+        mv eigen/Eigen include
         git clone https://github.com/bab2min/EigenRand
         cd EigenRand
         git checkout tags/v0.5.0
@@ -140,11 +143,12 @@ jobs:
         architecture: ${{ matrix.architecture }}
     - name: Build
       run: |
+        mkdir include
         git clone https://gitlab.com/libeigen/eigen
         cd eigen
         git checkout tags/3.4.0
         cd ..
-        mv eigen include
+        mv eigen/Eigen include
         git clone https://github.com/bab2min/EigenRand
         cd EigenRand
         git checkout tags/v0.5.0
@@ -182,11 +186,12 @@ jobs:
         architecture: ${{ matrix.architecture }}
     - name: Build
       run: |
+        mkdir include
         git clone https://gitlab.com/libeigen/eigen
         cd eigen
         git checkout tags/3.4.0
         cd ..
-        mv eigen include
+        mv eigen/Eigen include
         git clone https://github.com/bab2min/EigenRand
         cd EigenRand
         git checkout tags/v0.5.0
