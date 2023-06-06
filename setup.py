@@ -2,8 +2,15 @@ from setuptools import setup, Extension
 from codecs import open
 import os, os.path, struct, platform
 from setuptools.command.install import install
+import numpy
 
 here = os.path.abspath(os.path.dirname(__file__))
+
+if os.environ.get('CG_CPU_ARCH'):
+    from sysconfig import get_platform
+    fd = get_platform().split('-')
+    if fd[0] == 'macosx':
+        os.environ['_PYTHON_HOST_PLATFORM'] = '-'.join(fd[:-1] + [os.environ['CG_CPU_ARCH']])
 
 with open(os.path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
@@ -17,7 +24,7 @@ if platform.system() == 'Windows':
     arch_levels = {'':'', 'sse2':'/arch:SSE2', 'avx':'/arch:AVX', 'avx2':'/arch:AVX2'}
 elif platform.system() == 'Darwin': 
     cargs = ['-std=c++1y', '-O3', '-fpermissive', '-stdlib=libc++']
-    arch_levels = {'':'-march=native'}
+    arch_levels = {'':'', 'sse2':'-msse2'}
 elif 'manylinux' in os.environ.get('AUDITWHEEL_PLAT', ''):
     cargs = ['-std=c++1y', '-O3', '-fpermissive']
     arch_levels = {'':'', 'sse2':'-msse2', 'avx':'-mavx', 'avx2':'-mavx2'}
@@ -33,19 +40,18 @@ for arch, aopt in arch_levels.items():
     module_name = '_chronogram' + ('_' + arch if arch else '')
     modules.append(Extension(module_name,
                     libraries = [],
-                    include_dirs=['include'],
+                    include_dirs=['include', numpy.get_include()],
                     sources = sources,
                     define_macros=[('MODULE_NAME', 'PyInit_' + module_name)],
                     extra_compile_args=cargs + ([aopt] if aopt else [])))
 
-
 setup(
     name='chronogram',
 
-    version='0.1.7',
+    version='0.2.0',
 
     description='Chrono-gram, the diachronic word embedding model based on Word2vec Skip-gram with Chebyshev approximation',
-    long_description=long_description,
+    long_description='',
 
     url='https://github.com/bab2min/chronogram',
 

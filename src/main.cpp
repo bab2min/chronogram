@@ -32,11 +32,15 @@ struct Args
 	int order = 5, negative = 5, temporalSample = 5;
 	int batch = 10000, minCnt = 10;
 	int report = 100000;
-	int nsQ = 8, initStep = 8;
+	int nsQ = 8, initStep = 8, subword = 0, sdr = 5;
 	float eta = 1.f, zeta = .1f, lambda = .1f, padding = -1;
 	float initEpochs = 0, epoch = 1, threshold = 0.0025f;
 	float timePrior = 0;
-	float subsampling = 1e-4f;
+	float subsampling = 1e-4f, temporalSubsampling = 1;
+	float lr = 0.025f, weightDecay = 0, subwordWeightDecay = 0, orderDecay = 0;
+	float tnsWeight = 0, ugWeight = 0;
+	float dropout = 0;
+	int decayInterval = 0;
 	bool compressed = true;
 	bool recountVocabs = false;
 	bool semEval = false;
@@ -50,6 +54,9 @@ struct Args
 
 int main(int argc, char* argv[])
 {
+#ifdef _WIN32
+	SetConsoleOutputCP(65001);
+#endif
 	Args args;
 	try
 	{
@@ -75,10 +82,21 @@ int main(int argc, char* argv[])
 			("report", "", cxxopts::value<int>())
 			("eta", "", cxxopts::value<float>())
 			("z,zeta", "", cxxopts::value<float>())
+			("tnsWeight", "", cxxopts::value<float>())
+			("ugWeight", "", cxxopts::value<float>())
 			("lambda", "", cxxopts::value<float>())
 			("p,padding", "", cxxopts::value<float>())
-			("ss", "Sub-Samping", cxxopts::value<float>())
+			("ss", "Subsamping", cxxopts::value<float>())
+			("tss", "Temporal Subsamping", cxxopts::value<float>())
+			("wdi", "weight decay interval", cxxopts::value<int>())
+			("wd", "weight decay", cxxopts::value<float>())
+			("od", "order decay", cxxopts::value<float>())
+			("swd", "subword weight decay", cxxopts::value<float>())
+			("subword", "size of subword ngram", cxxopts::value<int>())
+			("sdr", "subword dropout remain", cxxopts::value<int>())
 			("rv", "recount vocabs", cxxopts::value<int>()->implicit_value("1"))
+			("lr", "", cxxopts::value<float>())
+			("dropout", "", cxxopts::value<float>())
 
 			("compressed", "Save as compressed", cxxopts::value<int>(), "default = 1")
 			("semEval", "Print SemEval2015 Task7 Result", cxxopts::value<int>()->implicit_value("1"))
@@ -148,6 +166,7 @@ int main(int argc, char* argv[])
 			READ_OPT(minT, float);
 			READ_OPT(maxT, float);
 			READ_OPT2(ss, subsampling, float);
+			READ_OPT2(tss, temporalSubsampling, float);
 			READ_OPT2(rv, recountVocabs, int);
 
 			READ_OPT(maxItem, size_t);
@@ -169,6 +188,8 @@ int main(int argc, char* argv[])
 			READ_OPT(nsQ, int);
 			READ_OPT(initStep, int);
 			READ_OPT(report, int);
+			READ_OPT(subword, int);
+			READ_OPT(sdr, int);
 			
 			READ_OPT(compressed, int);
 			READ_OPT(semEval, int);
@@ -181,6 +202,14 @@ int main(int argc, char* argv[])
 			READ_OPT(initEpochs, float);
 			READ_OPT(threshold, float);
 			READ_OPT(timePrior, float);
+			READ_OPT(lr, float);
+			READ_OPT2(wd, weightDecay, float);
+			READ_OPT2(od, orderDecay, float);
+			READ_OPT2(swd, subwordWeightDecay, float);
+			READ_OPT2(wdi, decayInterval, int);
+			READ_OPT(tnsWeight, float);
+			READ_OPT(ugWeight, float);
+			READ_OPT(dropout, float);
 
 			READ_OPT(evalShift, string);
 			READ_OPT(timeA, float);
@@ -209,8 +238,26 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
-	ChronoGramModel tgm{ (size_t)args.dimension, (size_t)args.order, 1e-4, (size_t)args.negative,
-		(size_t)args.temporalSample, args.eta, args.zeta, args.lambda };
+	ChronoGramModel::HyperParameter hp;
+	hp.dimension = args.dimension;
+	hp.order = args.order;
+	hp.negativeSamples = args.negative;
+	hp.temporalNegativeSamples = args.temporalSample;
+	hp.eta = args.eta;
+	hp.zeta = args.zeta;
+	hp.lambda = args.lambda;
+	hp.subsampling = args.subsampling;
+	hp.weightDecay = args.weightDecay;
+	hp.subwordWeightDecay = args.subwordWeightDecay;
+	hp.weightDecayInterval = args.decayInterval;
+	hp.temporalSubsampling = args.temporalSubsampling;
+	hp.subwordGrams = args.subword;
+	hp.subwordDropoutRemain = args.sdr;
+	hp.tnsWeight = args.tnsWeight;
+	hp.ugWeight = args.ugWeight;
+	hp.dropout = args.dropout;
+
+	ChronoGramModel tgm{ hp };
 	if (args.padding >= 0)
 	{
 		tgm.setPadding(args.padding);
@@ -223,9 +270,9 @@ int main(int argc, char* argv[])
 		MMap mm{ args.load };
 		imstream ifs{ mm.get(), mm.size() };
 		tgm = ChronoGramModel::loadModel(ifs);
-		cout << "Dimension: " << tgm.getD() << "\tOrder: " << tgm.getR() << endl;
+		cout << "Dimension: " << tgm.getHP().dimension << "\tOrder: " << tgm.getHP().order << endl;
 		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << endl;
-		cout << "Zeta: " << tgm.getZeta() << "\tLambda: " << tgm.getLambda() << endl;
+		cout << "Zeta: " << tgm.getHP().zeta << "\tLambda: " << tgm.getHP().lambda << endl;
 		cout << "Padding: " << tgm.getPadding() << endl;
 	}
 	else if (!args.input.empty() || !args.ngram.empty())
@@ -233,6 +280,7 @@ int main(int argc, char* argv[])
 		cout << "Dimension: " << args.dimension << "\tOrder: " << args.order << "\tNegative Sampling: " << args.negative << endl;
 		cout << "Workers: " << (args.worker ? args.worker : thread::hardware_concurrency()) << "\tBatch: " << args.batch << "\tEpochs: " << args.epoch << endl;
 		cout << "Eta: " << args.eta << "\tZeta: " << args.zeta << "\tLambda: " << args.lambda << endl;
+		cout << "SS: " << args.subsampling << "\tTSS: " << args.temporalSubsampling << endl;
 		cout << "Padding: " << tgm.getPadding() << "\tTemporal Negative Sampling: " << args.temporalSample << "\tWeight-Initializing Epochs: " << args.initEpochs << endl;
 
 		if (args.ngram.empty())
@@ -279,7 +327,7 @@ int main(int argc, char* argv[])
 		if (args.vocab.empty())
 		{
 			tgm.buildVocab(MultipleReader::factory(args.input), args.minCnt, args.worker);
-			cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.getVocabs().size()
+			cout << "MinCnt: " << args.minCnt << "\tVocab Size: " << tgm.usedVocabSize()
 				<< "\tTotal Words: " << tgm.getTotalWords() << endl;
 		}
 		else
@@ -297,7 +345,9 @@ int main(int argc, char* argv[])
 				return make_pair(w, cnt);
 			}, args.minT, args.maxT);
 
-			cout << "Vocab Size: " << tgm.getVocabs().size() << endl;
+			cout << "Vocab Size: " << tgm.usedVocabSize() << endl;
+			cout << "Subword Vocab Size: " << tgm.getSubwordVocabs().size() << endl;
+			cout << "Subword Dropout Remain: " << tgm.getHP().subwordDropoutRemain << endl;
 			if (args.recountVocabs)
 			{
 				cout << "Recounting vocabs in time range [" << args.minT << ", " << args.maxT << "]" << endl;
@@ -326,11 +376,11 @@ int main(int argc, char* argv[])
 			{
 				cout << "Initializing weights ... " << endl;
 				tgm.template train<true>(MultipleReader::factory(args.input),
-					args.worker, args.window, .025f, .00025f, args.batch, args.initEpochs, args.report);
+					args.worker, args.window, args.lr, args.lr / 100, args.batch, args.initEpochs, args.report);
 			}
 			cout << "Training ... " << endl;
 			tgm.train(MultipleReader::factory(args.input),
-				args.worker, args.window, .025f, .00025f, args.batch, args.epoch, args.report);
+				args.worker, args.window, args.lr, args.lr / 100, args.batch, args.epoch, args.report);
 		}
 		else
 		{
@@ -338,11 +388,11 @@ int main(int argc, char* argv[])
 			{
 				cout << "Initializing weights ... " << endl;
 				tgm.template trainFromGNgram<true>(GNgramBinaryReader::factory(args.ngram),
-					args.maxItem, args.worker, .025f, .00025f, args.batch, args.initEpochs, args.report);
+					args.maxItem, args.worker, args.lr, args.lr / 100, args.batch, args.initEpochs, args.report);
 			}
 			cout << "Training ... " << endl;
 			tgm.trainFromGNgram(GNgramBinaryReader::factory(args.ngram),
-				args.maxItem, args.worker, .025f, .00025f, args.batch, args.epoch, args.report);
+				args.maxItem, args.worker, args.lr, args.lr / 100, args.batch, args.epoch, args.report);
 		}
 
 		cout << "Finished in " << timer.getElapsed() << " sec" << endl;
@@ -644,7 +694,7 @@ int main(int argc, char* argv[])
 			istringstream iss{ line.substr(1) };
 			istream_iterator<string> wBegin{ iss }, wEnd{};
 			vector<string> words{ wBegin, wEnd };
-			auto evaluator = tgm.evaluateSent(words, args.window, args.nsQ, priorFunc, args.timePrior);
+			auto evaluator = tgm.evaluateSent(words, args.window, args.nsQ, 0, priorFunc, args.timePrior);
 			for (size_t i = 0; i <= args.initStep; ++i)
 			{
 				float z = tgm.getMinPoint() + (i / (float)args.initStep) * (tgm.getMaxPoint() - tgm.getMinPoint());

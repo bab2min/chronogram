@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <numeric>
 
 inline float sigmoid(float x)
 {
@@ -8,7 +9,7 @@ inline float sigmoid(float x)
 
 struct F_logsigmoid
 {
-	double operator()(double x) { return -log(1 + exp(-x)); }
+	double operator()(double x) { return -std::log(1 + std::exp(-x)); }
 	double forLarge(double x) { return -0.f; }
 };
 

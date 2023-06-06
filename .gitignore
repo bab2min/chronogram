@@ -296,3 +296,4 @@ __pycache__/
 /dist
 /build
 /build_windows.bat
+*.cgm

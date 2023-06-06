@@ -1,0 +1,71 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="src\ChronoGramModel.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\DataReader.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\IOUtils.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\MMap.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\pyModule.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\ChronoGramModel.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\cxxopts.hpp">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\DataReader.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\dictionary.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\IOUtils.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\mathUtils.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\MMap.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\polynomials.hpp">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\pyDocs.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\PyUtils.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ThreadPool.h">
+      <Filter>header</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Timer.h">
+      <Filter>header</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="chronogram\__init__.py" />
+    <None Include="setup.py" />
+    <None Include="x64\ReleaseSIMD\pyTest.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{01a18ac9-b3ba-41e1-b8b7-6ca02bd224e2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="header">
+      <UniqueIdentifier>{262fc62b-d74a-4f14-9c1b-3c502bcaf59b}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
