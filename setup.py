@@ -51,7 +51,7 @@ setup(
     version='0.2.0',
 
     description='Chrono-gram, the diachronic word embedding model based on Word2vec Skip-gram with Chebyshev approximation',
-    long_description=long_description,
+    long_description='',
 
     url='https://github.com/bab2min/chronogram',
 
