@@ -2302,7 +2302,7 @@ float ChronoGramModel::LLEvaluater::operator()(float normalizedTimePoint) const
 			if (i == j) continue;
 			const uint32_t y = wordIds[j];
 			if (y >= V) continue;
-			float d = (tCoef.array() * Map<const ArrayXf>{ cx.get(y, nsQ, tgm.hp.order), tgm.hp.order }).sum();
+			float d = (tCoef.array() * Map<const ArrayXf>{ cx.get(y, nsQ, tgm.hp.order), (Eigen::Index)tgm.hp.order }).sum();
 			ll += logsigmoid(d) * ctxWeight;
 			count[x]++;
 		}
