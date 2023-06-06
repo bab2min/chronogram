@@ -2343,7 +2343,7 @@ tuple<float, float> ChronoGramModel::LLEvaluater::fg(float normalizedTimePoint) 
 	};
 	float pa = max(tgm.getTimePrior(tCoef), 1e-5f);
 	float dot = tgm.timePrior.dot(tCoef);
-	float ddot = tgm.timePrior.block(1, 0, tgm.hp.order - 1, 1).dot(tDCoef);
+	float ddot = tgm.timePrior.middleRows(1, tgm.hp.order - 1).dot(tDCoef);
 	float ll = (timePrior ? timePrior : defaultPrior)(tgm.unnormalizedTimePoint(normalizedTimePoint)) * timePriorWeight,
 		dll = (dot * ddot / (exp(pow(dot, 2)) - 1 + 1e-5f) + dot * ddot) * timePriorWeight;
 	unordered_map<uint32_t, uint32_t> count;
