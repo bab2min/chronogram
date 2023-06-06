@@ -127,7 +127,7 @@ public:
 
 		struct MixedVectorCoef
 		{
-			size_t n = 0;
+			size_t n = 0, tops = 0;
 			std::map<uint32_t, std::vector<float>> dataMap;
 			std::vector<float> dataVec;
 
@@ -203,6 +203,7 @@ public:
 		float ugWeight = 0;
 		float dropout = 0;
 		uint32_t ugPartDimension = 0;
+		uint32_t useSubwordOut = 0;
 	};
 
 private:
@@ -227,6 +228,7 @@ private:
 	Eigen::MatrixXf in; // (D, R * V)
 	Eigen::MatrixXf subwordIn; // (D, R * SV)
 	Eigen::MatrixXf out; // (D, V)
+	Eigen::MatrixXf subwordOut; // (D, SV)
 
 	HyperParameter hp;
 	float zBias = 0, zSlope = 1;
@@ -251,7 +253,7 @@ private:
 	std::discrete_distribution<uint32_t> unigramTable;
 	std::vector<uint32_t> subwordTable;
 	std::vector<size_t> subwordTablePtrs;
-	Eigen::ArrayXf inDecay, outDecay, subwordInDecay;
+	Eigen::ArrayXf inDecay, outDecay, subwordInDecay, subwordOutDecay;
 	Eigen::Rand::BernoulliGen<float> dropoutGen;
 
 	Timer timer;

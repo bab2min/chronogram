@@ -202,6 +202,10 @@ void ChronoGramModel::buildSubwordTable()
 	}
 
 	subwordIn = Eigen::MatrixXf::Zero(hp.dimension, hp.order * subwordVocabs.size());
+	if (hp.useSubwordOut)
+	{
+		subwordOut = Eigen::MatrixXf::Zero(hp.dimension, subwordVocabs.size());
+	}
 }
 
 VectorXf ChronoGramModel::makeCoef(size_t r, float z)
@@ -1852,9 +1856,9 @@ void ChronoGramModel::saveModel(ostream & os, bool compressed) const
 		writeToBinStreamCompressed(os, in);
 		writeToBinStreamCompressed(os, subwordIn);
 		writeToBinStreamCompressed(os, out);
-		if (hp.ugWeight)
+		if (hp.useSubwordOut)
 		{
-			//writeToBinStreamCompressed(os, ugOut);
+			writeToBinStreamCompressed(os, subwordOut);
 		}
 	}
 	else
@@ -1862,9 +1866,9 @@ void ChronoGramModel::saveModel(ostream & os, bool compressed) const
 		writeToBinStream(os, in);
 		writeToBinStream(os, subwordIn);
 		writeToBinStream(os, out);
-		if (hp.ugWeight)
+		if (hp.useSubwordOut)
 		{
-			//writeToBinStream(os, ugOut);
+			writeToBinStream(os, subwordOut);
 		}
 	}
 
@@ -1937,10 +1941,10 @@ ChronoGramModel ChronoGramModel::loadModel(_Istream & is)
 				readFromBinStream(is, ret.in);
 				readFromBinStream(is, ret.subwordIn);
 				readFromBinStream(is, ret.out);
-				if (ret.hp.ugWeight)
+				if (ret.hp.useSubwordOut)
 				{
-					//ret.ugOut.resize(ret.hp.dimension, V);
-					//readFromBinStream(is, ret.ugOut);
+					ret.subwordOut.resize(ret.hp.dimension, ret.subwordVocabs.size());
+					readFromBinStream(is, ret.subwordOut);
 				}
 			}
 			else if (version == 4)
@@ -1948,10 +1952,10 @@ ChronoGramModel ChronoGramModel::loadModel(_Istream & is)
 				readFromBinStreamCompressed(is, ret.in);
 				readFromBinStreamCompressed(is, ret.subwordIn);
 				readFromBinStreamCompressed(is, ret.out);
-				if (ret.hp.ugWeight)
+				if (ret.hp.useSubwordOut)
 				{
-					//ret.ugOut.resize(ret.hp.dimension, V);
-					//readFromBinStreamCompressed(is, ret.ugOut);
+					ret.subwordOut.resize(ret.hp.dimension, ret.subwordVocabs.size());
+					readFromBinStreamCompressed(is, ret.subwordOut);
 				}
 			}
 			
